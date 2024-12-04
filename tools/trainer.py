@@ -14,6 +14,7 @@ import os
 import gc
 import subprocess
 import numpy as np
+import math
 
 def get_gpu_temperature():
     result = subprocess.run(['nvidia-smi', '--query-gpu=temperature.gpu', '--format=csv,noheader'], stdout=subprocess.PIPE)
@@ -52,16 +53,13 @@ class Trainer():
         self.bear_max = bear_max
         self.last = last
         self.contrastive = True
-        # 定义可学习权重
-        self.alpha = torch.nn.Parameter(torch.tensor(1.0), requires_grad=True)
-        self.beta = torch.nn.Parameter(torch.tensor(1.0), requires_grad=True)
-        self.gamma = torch.nn.Parameter(torch.tensor(0.02), requires_grad=True)
-
-        # 将权重加入优化器
-        self.optimizer.add_param_group({'params': [self.alpha, self.beta, self.gamma]})
-        self.gamma_increment = 0.01  # 每次增加的幅度
-        self.max_gamma = 0.75  # 設定 gamma 的最大值
-        
+      
+        self.gamma_base = 0.0001  # gamma 初始值
+        self.alpha = 0.2  # 冪次增長速度參數
+        self.threshold = 50  # joint_pair_f1 的臨界值
+        self.wait_epochs = 10  # joint_pair_f1 需超過閾值的連續 epoch 數
+        self.above_threshold_count = 0  # 初始化計數器
+      
     def train(self):
         bear = 0
         last = self.last
@@ -108,7 +106,19 @@ class Trainer():
             epoch_sum_loss = []
             joint_precision, joint_recall, joint_f1 ,joint_pair_f1= self.evaluate(self.model, self.devset, self.stop_words, self.logging, self.args)
             joint_precision_test, joint_recall_test, joint_f1_test,joint_pair_f1_test = self.evaluate(self.model, self.testset, self.stop_words, self.logging, self.args)
+            # 更新計數器
+            if joint_pair_f1*100 > self.threshold:
+                self.above_threshold_count += 1
+            else:
+                self.above_threshold_count = 0
 
+            # 如果計數器達到條件，逐漸增長 gamma
+            if self.above_threshold_count >= self.wait_epochs:
+                gamma = self.gamma_base * math.exp(self.alpha * (self.above_threshold_count - self.wait_epochs))
+            else:
+                gamma = self.gamma_base
+            self.logging(f"Epoch {i + 1}: joint_pair_f1 = {joint_pair_f1}, gamma = {gamma:.6f}, above_threshold_count = {self.above_threshold_count}")
+    
             for j in trange(self.trainset.batch_count):
                 self.model.train()
                 # 获取批次数据
@@ -178,20 +188,10 @@ class Trainer():
 
 
                 # 動態調整 gamma
-
-                if joint_pair_f1 > 45:
-                    new_gamma = self.gamma.item() + self.gamma_increment
-                    self.gamma.data = torch.tensor(min(new_gamma, self.max_gamma), requires_grad=True)
-
-                    # 更新 optimizer 中的 gamma
-                    for group in self.optimizer.param_groups:
-                        if self.gamma in group['params']:
-                            group['params'].remove(self.gamma)
-                            group['params'].append(self.gamma)
                 # 總損失
                 if self.contrastive:
                     # loss =  alpha* loss0 + beta * self.beta_1 * loss1 + self.beta_2 * loss_cl + gamma* intensity_loss
-                    loss =  self.alpha* loss0 + self.beta * self.beta_1 * loss1 + self.beta_2 * loss_cl + self.gamma* intensity_loss
+                    loss =  loss0 + self.beta_1 * loss1 + self.beta_2 * loss_cl + gamma* intensity_loss
                 else:
                     loss = loss0 + self.beta_1 * loss1 + intensity_loss
                 
@@ -255,7 +255,7 @@ class Trainer():
                     self.best_joint_f1_test = joint_f1_test
                     self.best_joint_epoch_test = i
 
-            if (j + 1) % 5 == 0 ==0:
+            if (j + 1) % 5 ==0:
                 gc.collect()  # 清理 Python 中的未引用对象
                 torch.cuda.empty_cache()  # 清理緩存
 
