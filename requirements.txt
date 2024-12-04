@@ -1,0 +1,14 @@
+transformers==4.31.0
+torch==2.0.1        
+numpy==2.0.2         
+tqdm==4.66.1         
+argparse==1.4.0      
+common-utils==1.1.2.dev1   
+tools==0.0.3       
+# os==0.1.2            
+datetime==5.2        
+# random==0.3.0         
+utils==1.0.2
+tensorboard
+scikit-learn
+matplotlib
