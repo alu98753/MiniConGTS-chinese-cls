@@ -94,7 +94,9 @@ class Instance(object):
         
         self.tagging_matrix = self.get_tagging_matrix()
         self.tagging_matrix = (self.tagging_matrix + self.mask - torch.tensor(1)).long()
-    
+        self.intensity_tagging_matrix = self.get_intensity_tagging_matrix()
+        # self.intensity_tagging_matrix = (self.intensity_tagging_matrix + self.mask - torch.tensor(1)).long()
+
  
 
     def get_intensity(self, single_sentence_pack):
@@ -420,7 +422,30 @@ class Instance(object):
 
         return tagging_matrix
 
-    
+    def get_intensity_tagging_matrix(self):
+        """
+        為句子生成 intensity_tagging_matrices，支持 V 和 A 的回歸預測。
+        """
+        max_sequence_len = self.args.max_sequence_len
+        intensity_tagging_matrix = torch.zeros((max_sequence_len, max_sequence_len, 2))  # 初始化矩陣
+
+        for triplet in self.triplets_in_spans:
+            aspect_spans, opinion_spans, sentiment = triplet
+
+            # 提取 V 和 A
+            intensity_values = self.triplets[self.triplets_in_spans.index(triplet)].get("intensity", "5.0#5.0")
+            valence, arousal = map(float, intensity_values.split("#"))
+            # print(f"valence{valence}arousal{arousal}")
+            # 填充矩陣
+            for aspect_span in aspect_spans:
+                for opinion_span in opinion_spans:
+                    for i in range(aspect_span[0], aspect_span[1] + 1):
+                        for j in range(opinion_span[0], opinion_span[1] + 1):
+                            intensity_tagging_matrix[i, j, 0] = valence
+                            intensity_tagging_matrix[i, j, 1] = arousal
+
+        return intensity_tagging_matrix
+
 
 
 class DataIterator(object):
@@ -443,6 +468,7 @@ class DataIterator(object):
         # 原有代碼...
         intensities = []
         max_triplets = 0
+        intensity_tagging_matrices = []
 
         for i in range(index * self.args.batch_size, min((index + 1) * self.args.batch_size, len(self.instances))):
             sentence_ids.append(self.instances[i].id)
@@ -459,7 +485,8 @@ class DataIterator(object):
             # 收集 intensity，並更新批次內的最大三元組數量
             intensities.append(self.instances[i].intensities)
             max_triplets = max(max_triplets, self.instances[i].intensities.shape[0])
-            
+            intensity_tagging_matrices.append(self.instances[i].intensity_tagging_matrix)
+
         # print("調試點5 Original Intensities:", intensities)  # 調試點5
 
         # Debug: Check collected data before padding
@@ -486,9 +513,18 @@ class DataIterator(object):
         batch_mean = torch.mean(intensities[intensities != 0])  # 過濾補零部分
         batch_std = torch.std(intensities[intensities != 0])
 
-        # 標準化
+        # intensity_tagging_matrices標準化
         intensities = (intensities - batch_mean) / batch_std
-        
+        max_seq_len = self.args.max_sequence_len
+        padded_intensity_matrices = []
+        for matrix in intensity_tagging_matrices:
+            pad = torch.zeros(max_seq_len - matrix.shape[0], max_seq_len, 2)
+            padded_matrix = torch.cat([matrix, pad], dim=0)
+            pad = torch.zeros(max_seq_len, max_seq_len - padded_matrix.shape[1], 2)
+            padded_matrix = torch.cat([padded_matrix, pad], dim=1)
+            padded_intensity_matrices.append(padded_matrix)
+        intensity_tagging_matrices = torch.stack(padded_intensity_matrices).to(self.args.device)
+
         # 將數據處理為張量並返回
         if len(bert_tokens) == 0:
             print(bert_tokens)
@@ -511,7 +547,7 @@ class DataIterator(object):
         # print(f"CL masks shape: {cl_masks.shape}, device: {cl_masks.device}")
 
         # return sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes
-        return sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes, intensities , batch_mean, batch_std
+        return sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes, intensities , intensity_tagging_matrices, batch_mean, batch_std
 
 
 if __name__ == "__main__":

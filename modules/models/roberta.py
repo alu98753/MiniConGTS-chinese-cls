@@ -15,9 +15,10 @@ class Model(torch.nn.Module):
         self.norm1 = torch.nn.LayerNorm(self.args.max_sequence_len)
         self.cls_linear = torch.nn.Linear(self.args.max_sequence_len, args.class_num)  # sentiment分類頭
         self.cls_linear1 = torch.nn.Linear(self.args.max_sequence_len, 2)  # opinion分類頭
-        self.intensity_linear = torch.nn.Linear(self.args.max_sequence_len, 2)  # intensity回歸頭（valence和arousal）
-        
-        
+        # self.intensity_head = torch.nn.Linear(args.max_sequence_len, 22)  # 分別對 V 和 A 分成 11 個類別
+                                            # args.max_sequence_len?features.shape[-1]
+        self.intensity_head = torch.nn.Linear(self.args.max_sequence_len, 2)  # 輸出 V 和 A 的連續值
+
         self.gelu = torch.nn.GELU()
 
     def forward(self, tokens, masks):
@@ -49,12 +50,9 @@ class Model(torch.nn.Module):
 
         logits = self.cls_linear(hidden) # sentiment分類輸出
         logits1 = self.cls_linear1(hidden) # opinion分類輸出
-        
         # intensity回歸輸出
-        
-        # 使用 masks 遮罩非-opinion tokens
-        # 遮罩非-opinion tokens
-        intensity_logits = self.intensity_linear(hidden)
+        intensity_logits = self.intensity_head(hidden)
+
 
         # intensity_scores = torch.sigmoid(self.intensity_linear(bert_feature[:, 0, :]))  # Min-Max Scaling 將輸出值縮放到 [0, 1] # 使用 [CLS] token 的特徵
 
@@ -67,10 +65,9 @@ class Model(torch.nn.Module):
         
         logits = masks0 * logits
         logits1 = masks1 * logits1
-        intensity_logits = masks2 * intensity_logits
+        # intensity_logits = masks2 * intensity_logits
 
         
-        return logits, logits1, sim_matrix, intensity_logits 
-
+        return logits, logits1, sim_matrix, intensity_logits
         # return logits, logits1, sim_matrix
     

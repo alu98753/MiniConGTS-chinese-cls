@@ -21,18 +21,16 @@ def evaluate(model, dataset, stop_words, logging, args):
         all_intensity_logits = []  # 標準化後的預測值 # 反標準化的預測值
         
         for i in range(dataset.batch_count):
-            sentence_ids, tokens, masks, token_ranges, tags, tokenized, _, _, intensities , batch_mean, batch_std = dataset.get_batch(i)
+            sentence_ids, tokens, masks, token_ranges, tags, tokenized, _, _, intensities , intensity_tagging_matrices, batch_mean, batch_std = dataset.get_batch(i)
             # sentence_ids, bert_tokens, masks, word_spans, tagging_matrices = trainset.get_batch(i)
             # print(f"tags{i}:{tags}")
             preds, _, _, intensity_logits = model(tokens, masks)
             
-            # 縮減多餘維度，使用平均池化
-            intensity_logits = intensity_logits.mean(dim=2, keepdim=True)  # 保留維度
-            # 反標準化
 
-            original_intensity_scores = (intensity_logits * batch_std) + batch_mean  # 反標準化
-            original_intensities = (intensities * batch_std) + batch_mean  # 真實值反標準化
-
+            # 反標準化處理
+            predicted_intensities = (intensity_logits * batch_std) + batch_mean  # 反標準化預測值
+            true_intensities = (intensities * batch_std) + batch_mean  # 反標準化真實值
+   
             # print(f"調試點9 Batch {i} True Intensities:", intensities)  # 調試點9
             # print(f"調試點10 Batch {i} Predicted Intensities:", intensity_logits)  # 調試點10
             preds = torch.argmax(preds, dim=3) #2
@@ -45,8 +43,8 @@ def evaluate(model, dataset, stop_words, logging, args):
             all_ids.extend(sentence_ids) #8
             all_tokenized.extend(tokenized)
             # intensity 處
-            all_intensities.extend(original_intensities.cpu().tolist())
-            all_intensity_logits.extend(original_intensity_scores.cpu().tolist())
+            all_intensities.extend(true_intensities.cpu().tolist())
+            all_intensity_logits.extend(predicted_intensities.cpu().tolist())
             # print(f"Batch {i} intensities shape: {intensities.shape}")
             # print(f"Batch {i} sentence_ids length: {len(sentence_ids)}")
         # print(f"Total samples collected: {len(all_ids)}")
@@ -124,5 +122,5 @@ def evaluate(model, dataset, stop_words, logging, args):
         logging(f'Triplet_intensity P:{triplet_intensity_precision:.2f} R:{triplet_intensity_recall:.2f} F1:{triplet_intensity_f1:.2f}')
     
     model.train()
-    return precision, recall, f1
+    return precision, recall, f1 , pair_results[2]
     # return 0, 0, 0

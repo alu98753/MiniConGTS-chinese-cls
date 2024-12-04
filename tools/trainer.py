@@ -30,7 +30,7 @@ class Trainer():
         # self.criterion = criterion
         self.f_loss = criterion[0]  # sentiment損失
         self.f_loss1 = criterion[1]  # opinion損失
-        self.intensity_loss_fn = nn.MSELoss()  # intensity損失
+        self.intensity_loss_fn = nn.CrossEntropyLoss()  # intensity損失
 
         self.lr_scheduler = lr_scheduler
         self.best_joint_f1 = 0
@@ -52,13 +52,22 @@ class Trainer():
         self.bear_max = bear_max
         self.last = last
         self.contrastive = True
+        # 定义可学习权重
+        self.alpha = torch.nn.Parameter(torch.tensor(1.0), requires_grad=True)
+        self.beta = torch.nn.Parameter(torch.tensor(1.0), requires_grad=True)
+        self.gamma = torch.nn.Parameter(torch.tensor(0.02), requires_grad=True)
 
+        # 将权重加入优化器
+        self.optimizer.add_param_group({'params': [self.alpha, self.beta, self.gamma]})
+        self.gamma_increment = 0.01  # 每次增加的幅度
+        self.max_gamma = 0.75  # 設定 gamma 的最大值
+        
     def train(self):
         bear = 0
         last = self.last
         
-        # 定義保存的模型路徑
-        saved_model_path = os.path.join(r"/mnt/md0/chen-wei/zi/MiniConGTS_copy_ch_cantrain/modules/mols/saved_models/best_model_ch.pt")
+        # 定義輸入模型路徑
+        saved_model_path = os.path.join(r"/mnt/md0/chen-wei/zi/MiConGTS_ch_can/modules/models/saved_models/best_model_ch.pt")
 
         # 如果模型文件存在，則加載模型   
         if os.path.exists(saved_model_path):
@@ -97,12 +106,14 @@ class Trainer():
             self.logging(f"contrastive: {self.contrastive} | bear/max: {bear}/{self.bear_max} | last: {last}")
 
             epoch_sum_loss = []
+            joint_precision, joint_recall, joint_f1 ,joint_pair_f1= self.evaluate(self.model, self.devset, self.stop_words, self.logging, self.args)
+            joint_precision_test, joint_recall_test, joint_f1_test,joint_pair_f1_test = self.evaluate(self.model, self.testset, self.stop_words, self.logging, self.args)
 
             for j in trange(self.trainset.batch_count):
                 self.model.train()
                 # 获取批次数据
                 # sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes = self.trainset.get_batch(j)
-                sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes, intensities , batch_mean, batch_std= self.trainset.get_batch(j)
+                sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes, intensities, intensity_tagging_matrices , batch_mean, batch_std= self.trainset.get_batch(j)
 
                 # logits, logits1, sim_matrices = self.model(bert_tokens, masks)
                 logits, logits1, sim_matrices, intensity_logits = self.model(bert_tokens, masks)
@@ -121,39 +132,34 @@ class Trainer():
                 loss1 = self.f_loss1(logits1_flatten.float(), tags1_flatten)
 
                 # intensity損失計算                 # 過濾補零部分
-                valid_triplets = intensities.sum(dim=2) > 0  # shape: (batch_size, max_triplets)
+                # 展平 intensity_tagging_matrices
+                # print(f"intensity_logits shape: {intensity_logits.shape}")  # 應為 (batch_size, max_seq_len, max_seq_len, 11)
+                # print(f"intensity_tagging_matrices shape: {intensity_tagging_matrices.shape}")  # 應為 (batch_size, max_seq_len, max_seq_len, 2)
 
-                intensity_logits = intensity_logits[:, :valid_triplets.size(1), :]
-                intensity_logits = (intensity_logits - torch.mean(intensity_logits)) / torch.std(intensity_logits)
+                # 真實值
+                valence_true = intensity_tagging_matrices[..., 0]
+                arousal_true = intensity_tagging_matrices[..., 1]
+                # print(f"valence_true shape: {valence_true.shape}")  # 應為 (batch_size, max_seq_len, max_seq_len, 11)
+                # print(f"arousal_true shape: {arousal_true.shape}")  # 應為 (batch_size, max_seq_len, max_seq_len, 11)
+
+                # 模型輸出（連續值）
+                valence_pred = intensity_logits[..., 0]
+                arousal_pred = intensity_logits[..., 1]
+                # print(f"valence_pred shape: {valence_pred.shape}")  # 應為 (batch_size, max_seq_len, max_seq_len, 11)
+                # print(f"arousal_pred shape: {valence_pred.shape}")  # 應為 (batch_size, max_seq_len, max_seq_len, 11)
+
+                # 使用 MSE 損失計算
+                valence_loss = torch.nn.functional.mse_loss(valence_pred, valence_true)
+                arousal_loss = torch.nn.functional.mse_loss(arousal_pred, arousal_true)
+
+                # 合併損失
+                intensity_loss = (valence_loss + arousal_loss) / 2
+
 
 
                 # print("調試點11 Valid Predicted Intensities:", intensity_scores[valid_triplets][:5])  # 有效的預測值
                 # print("調試點11 Valid True Intensities:", intensities[valid_triplets][:5])  # 有效的標籤值
-                
-                # intensity回归损失：将 logits 转换为 scores 进行计算
-                # 縮減多餘維度，使用平均池化
-                # intensity_scores = intensity_logits.mean(dim=2, keepdim=True)  # 保留維度
 
-                # 確保形狀與標籤一致
-                # intensity_scores = intensity_scores.squeeze(dim=2)  # 去掉多餘的維度
-                # print(f"Adjusted intensity_logits shape: {intensity_logits.shape}")
-                # print(f"intensities shape: {intensities.shape}")
-                
-                expanded_intensities = intensities.unsqueeze(2)  # 增加一個維度表示 max_length
-                expanded_intensities = expanded_intensities.expand(-1, -1, intensity_logits.size(2), -1)  # max_length 從 `intensity_logits` 繼承
-                # print(f"Expanded intensities shape: {expanded_intensities.shape}")  # 應該為 [batch_size, max_triplets, max_length, 2]
-
-                
-                # Step 4: 將 `valid_triplets` 廣播到 `[batch_size, max_triplets, max_length, 2]`
-                valid_triplets_mask = valid_triplets.unsqueeze(2).unsqueeze(3).expand(-1, -1, intensity_logits.size(2), intensity_logits.size(3))
-
-                # Step 5: 過濾無效部分
-                valid_intensity_logits = intensity_logits[valid_triplets_mask].view(-1, 2)  # 只保留有效部分
-                valid_intensities = expanded_intensities[valid_triplets_mask].view(-1, 2)  # 只保留有效部分
-
-                # Step 6: 使用 MSELoss 計算損失
-                intensity_loss = self.intensity_loss_fn(valid_intensity_logits, valid_intensities)
-                
                 # Debug: 確認損失值
                 # print(f"Intensity Loss: {intensity_loss.item()}")
                 # print(f"Epoch {i}, Batch {j}, Intensity Loss: {intensity_loss.item()}")
@@ -170,14 +176,18 @@ class Trainer():
                 
                 # alpha, beta, gamma = 1, 1, 0.002 # 對應 sentiment, opinion, intensity
 
-                # 定义可学习权重
-                self.alpha = torch.nn.Parameter(torch.tensor(1.0), requires_grad=True)
-                self.beta = torch.nn.Parameter(torch.tensor(1.0), requires_grad=True)
-                self.gamma = torch.nn.Parameter(torch.tensor(0.002), requires_grad=True)
 
-                # 将权重加入优化器
-                self.optimizer.add_param_group({'params': [self.alpha, self.beta, self.gamma]})
-                
+                # 動態調整 gamma
+
+                if joint_pair_f1 > 45:
+                    new_gamma = self.gamma.item() + self.gamma_increment
+                    self.gamma.data = torch.tensor(min(new_gamma, self.max_gamma), requires_grad=True)
+
+                    # 更新 optimizer 中的 gamma
+                    for group in self.optimizer.param_groups:
+                        if self.gamma in group['params']:
+                            group['params'].remove(self.gamma)
+                            group['params'].append(self.gamma)
                 # 總損失
                 if self.contrastive:
                     # loss =  alpha* loss0 + beta * self.beta_1 * loss1 + self.beta_2 * loss_cl + gamma* intensity_loss
@@ -218,8 +228,6 @@ class Trainer():
             self.logging(f"GPU Info: {torch.cuda.memory_summary(device=torch.device('cuda:0'), abbreviated=True)}")
             self.logging(f"Batch {j}: GPU Allocated: {allocated:.2f}MB, Reserved: {reserved:.2f}MB, Gradient Norm: {total_norm:.2f}")
             self.logging(f"GPU Temperature: {get_gpu_temperature()}°C")
-            joint_precision, joint_recall, joint_f1 = self.evaluate(self.model, self.devset, self.stop_words, self.logging, self.args)
-            joint_precision_test, joint_recall_test, joint_f1_test = self.evaluate(self.model, self.testset, self.stop_words, self.logging, self.args)
 
 
 

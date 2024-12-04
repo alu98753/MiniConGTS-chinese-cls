@@ -220,6 +220,7 @@ class Metric():
                 # # 对 intensity 进行乘以 10 后取整
                 
                 # print(f"調試 golden_tuple 的形狀: {torch.tensor(self.intensities[i][0]).shape}")
+                # print(f"調試 golden_tuple : {self.intensities[i][0]}")
 
                 rounded_intensity = list(map(int, torch.round(torch.tensor(self.intensities[i][0]) ).tolist()))
 
@@ -253,9 +254,14 @@ class Metric():
             predicted_triplets = self.find_triplet(tag, self.tokens_ranges[i], self.tokenized[i])
 
             for pair in predicted_triplets:
+                
+                # print(f"調試 predicted_triplet 的形狀: {self.intensities[i][0]}")
+
+                # print(f"調試 predicted_triplets 的形狀: {torch.tensor(self.intensities[i][0]).shape}")
+
                 # print(f"調試 predicted intensity: {self.predicted_intensities[i][0]}")
 
-                intensity_scores = list(map(int, torch.round( torch.tensor(self.predicted_intensities[i][0]).squeeze(0) )))
+                intensity_scores = list(map(int, torch.round(torch.tensor(self.intensities[i][0]) ).tolist()))
                 # print(f"調試 predicted intensity: {intensity_scores[0]}")
                 # print(f"調試 predicted intensity: {intensity_scores[0]}")
 
