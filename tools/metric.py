@@ -11,8 +11,7 @@ class Metric():
                  tokens_ranges, intensities, predicted_intensities, ignore_index=-1, logging=print):    
         _g = np.array(goldens)
         _g[_g==-1] = 0
-        
-        print('sum_pred: ', np.array(predictions).sum(), ' sum_gt: ', _g.sum())
+
         self.args = args
         self.predictions = predictions
         self.goldens = goldens
@@ -25,8 +24,9 @@ class Metric():
         self.stop_words = stop_words
         self.tokenized = tokenized
         self.logging = logging
-        
-        self.intensities = intensities  # 真實值
+        self.logging(f"sum_pred: {np.array(predictions).sum()} ,sum_gt: {_g.sum()}")
+
+        self.intensities = intensities  
         self.predicted_intensities = predicted_intensities  # 預測值
 
     def get_spans(self, tags, length, token_range, type):
@@ -47,9 +47,11 @@ class Metric():
             spans.append([start, length - 1])
         return spans
 
-    def find_triplet_golden(self, tag):
+    def find_triplet_golden(self, tag , tag_intensities):
         triplets = []
-        # print(f"調試 tag 矩陣：\n{tag}")
+        # print(f"調試 tag 矩陣：\n{len(tag)}")
+        # print(f"調試 tag 矩陣：\n{tag.shape}")
+        # print(f"調試 tag 矩陣：\n{tag_intensities.shape}")
 
         for row in range(1, tag.shape[0]-1):
             for col in range(1, tag.shape[1]-1):
@@ -67,17 +69,27 @@ class Metric():
                     while tag[ar][pr+1] == 1:
                         pr += 1
 
-                    triplets.append([al, ar, pl, pr, sentiment])
+                    # 提取 intensity 值  參考get_intensity_tagging_matrix
+                    v = tag_intensities[al, pr, 0]  # 提取 (pl, pr) 位置的第 0 個值
+                    a = tag_intensities[al, pr, 1]  # 提取 (pl, pr) 位置的第 1 個值
+                    # print(f"原本的: v :{v} , a :{a}")
+
+                    # 乘以 10，四捨五入，並轉換為整數
+                    v = int(round(v * 10))
+                    a = int(round(a * 10))
+                    # print(f"v :{v} , a :{a}")
+
+                    triplets.append([al, ar, pl, pr, sentiment,v ,a])
                     # print(f"匹配 triplet: {[al, ar, pl, pr, sentiment]}")
 
                 # print(triplets)
                 # [[1, 3, 6, 6, 5]]
                 # [[1, 3, 6, 6, 5], [9, 11, 13, 13, 5]]
                 # [[1, 3, 6, 6, 5], [9, 11, 13, 13, 5], [16, 16, 15, 15, 5]]
-                
+
         return triplets
     # 調試：對應 golden_tuple 與 find_triplet 結果
-    def compare_triplets(self, golden_tuple, tokenized, tokens_ranges):
+    def compare_triplets(self, golden_tuple, tokenized, tokens_ranges , predicted_intensities_matrix):
         for i in range(len(golden_tuple)):
             print(f"golden_tuple:{golden_tuple[i]}")
             al, ar, pl, pr, sentiment = golden_tuple[i]
@@ -100,7 +112,7 @@ class Metric():
     #     return triplets
 
     
-    def find_triplet(self, tag, ws, tokenized):
+    def find_triplet(self, tag, ws, tokenized , predicted_intensities_matrix):
         triplets = []
         # print(f"調試：tag 矩陣\n{tag}")
         # print(f"調試：tokens_ranges={ws}")
@@ -153,8 +165,12 @@ class Metric():
                     if conditions:
                         # print(f"Triplet found: al={al}, ar={ar}, pl={pl}, pr={pr}, sentiment={sentiment}")
                         # print(f"Aspect range: {tokenized[al:ar+1]}, Opinion range: {tokenized[pl:pr+1]}")
+                        sub_matrix_0 = predicted_intensities_matrix[al:ar+1, pl:pr+1, 0]
+                        sub_matrix_1 = predicted_intensities_matrix[al:ar+1, pl:pr+1, 1]
+                        pred_v = int(round(sub_matrix_0.mean().item() * 10))
+                        pred_a = int(round(sub_matrix_1.mean().item() * 10))
 
-                        triplets.append([al, ar, pl, pr, sentiment])
+                        triplets.append([al, ar, pl, pr, sentiment,pred_v ,pred_a])
 
                 # print(triplets)
                 # [[1, 3, 6, 6, 5]]
@@ -201,7 +217,6 @@ class Metric():
     #改動起點
     def get_sets(self):
         assert len(self.predictions) == len(self.goldens)
-        p_golden_set = []
         p_predicted_set = []
         golden_set = set()
         predicted_set = set()
@@ -210,10 +225,12 @@ class Metric():
         for i in range(self.data_num):
             id = self.ids[i]
             tokenized_sentence = self.tokenized[i]
-            golden_tuples = self.find_triplet_golden(np.array(self.goldens[i]))
+            golden_tuples = self.find_triplet_golden(np.array(self.goldens[i]) , np.array(self.intensities[i]))
             
             # print(f"tokens_ranges: {self.tokens_ranges[i]}")
             # print(f"tokenized sentence: {self.tokenized[i]}")
+
+
             for golden_tuple in golden_tuples:
                 # print(golden_tuple)
                 # print(f"self.intensities[{i}]: {self.intensities[i]}, type: {type(self.intensities[i])}")
@@ -221,102 +238,64 @@ class Metric():
                 
                 # print(f"調試 golden_tuple 的形狀: {torch.tensor(self.intensities[i][0]).shape}")
                 # print(f"調試 golden_tuple : {self.intensities[i][0]}")
+                # 對 self.intensities 進行處理
+                # int_intensitys = list(map(lambda x: int(round(x * 10)), self.intensities[i]))
+                # print(f"調試 int_intensitys : {int_intensitys}")
 
-                rounded_intensity = list(map(int, torch.round(torch.tensor(self.intensities[i][0]) ).tolist()))
 
-                golden_set.add(id + '-' + '-'.join(map(str, golden_tuple)) + '-' + '-'.join(map(str, rounded_intensity)))
+                # rounded_intensity = list(map(int, torch.round(torch.tensor(self.intensities[i][0]) ).tolist())) #???self.intensities 是list
+                # golden_set.add(id + '-' + '-'.join(map(str, golden_tuple)) + '-' + '-'.join(map(str, rounded_intensity)))
+                golden_set.add(id + '-' + '-'.join(map(str, golden_tuple)))
+
+                # print(f"調試 int_intensitys : {int_intensitys}")
+
+                # print(golden_set)
                 # print("調試點golden_tuples_triplets:",id + '-' + '-'.join(map(str, golden_tuple)) + '-' + '-'.join(map(str, rounded_intensity)))
             # print(f"調試點golden_tuples_triplets:{golden_tuples}")
-
-            # Process golden triplets
-            for idx, golden_tuple in enumerate(golden_tuples):
-                # Ensure idx is within the range of intensities
-                if idx < len(self.intensities[i]):
-                    intensity_values = self.intensities[i][idx]  # Already a list
-                else:
-                    intensity_values = [0.0, 0.0]  # Default value if no intensity
-                p_golden_set.append({
-                    'id': id,
-                    'aspect_indices': (golden_tuple[0], golden_tuple[1]),
-                    'opinion_indices': (golden_tuple[2], golden_tuple[3]),
-                    'sentiment': golden_tuple[4],
-                    'intensity': intensity_values
-                })
             
             # Process predicted triplets
-
-            # 獲取 predicted triplets，並新增 Intensity
-            tag = np.array(self.predictions[i])
+            tag = np.array(self.predictions[i])   
             tag[0][:] = -1
             tag[-1][:] = -1
             tag[:, 0] = -1
             tag[:, -1] = -1
-            predicted_triplets = self.find_triplet(tag, self.tokens_ranges[i], self.tokenized[i])
+            predicted_triplets = self.find_triplet(tag, self.tokens_ranges[i], self.tokenized[i] , np.array(self.predicted_intensities[i]))
 
+            # predict symetric
             for pair in predicted_triplets:
                 
-                # print(f"調試 predicted_triplet 的形狀: {self.intensities[i][0]}")
-
+                # print(f"調試 self.intensities[i][0] 的形狀: {self.predicted_intensities[i][0]}")
+                # print(f"調試 self.predicted_intensities[i] : {self.predicted_intensities[i]}")
+                # # 對 self.predicted_intensities 進行處理
+                # pred_int_intensitys = list(map(lambda x: int(round(x * 10)), self.predicted_intensities[i]))
+                # print(f"調試 pred_int_intensitys : {pred_int_intensitys}")
+                # # print(f"調試 pred_int_intensitys : {pred_int_intensitys}")
                 # print(f"調試 predicted_triplets 的形狀: {torch.tensor(self.intensities[i][0]).shape}")
 
                 # print(f"調試 predicted intensity: {self.predicted_intensities[i][0]}")
 
-                intensity_scores = list(map(int, torch.round(torch.tensor(self.intensities[i][0]) ).tolist()))
+                # intensity_scores = list(map(int, torch.round(torch.tensor(self.intensities[i]) ).tolist()))
                 # print(f"調試 predicted intensity: {intensity_scores[0]}")
                 # print(f"調試 predicted intensity: {intensity_scores[0]}")
 
-                predicted_set.add(id + '-' + '-'.join(map(str, pair)) + '-' + '-'.join(map(str, intensity_scores)))
+                # predicted_set.add(id + '-' + '-'.join(map(str, pair)) + '-' + '-'.join(map(str, intensity_scores)))
+                # predicted_set.add(id + '-' + '-'.join(map(str, pair)) + '-' + '-'.join(map(str, pred_int_intensitys)))
+                predicted_set.add(id + '-' + '-'.join(map(str, pair)))
 
 
             # print(f"調試點predicted_triplets:{predicted_triplets}")
             
-            for idx, predicted_tuple in enumerate(predicted_triplets):
-                if idx < len(self.predicted_intensities[i]):
-                    intensity_scores = self.predicted_intensities[i][idx]  # Already a list
-                else:
-                    intensity_scores = [0.0, 0.0]  # Default value if no intensity
+            # for idx, predicted_tuple in enumerate(predicted_triplets):
+
                 p_predicted_set.append({
                     'id': id,
-                    'aspect_indices': (predicted_tuple[0], predicted_tuple[1]),
-                    'opinion_indices': (predicted_tuple[2], predicted_tuple[3]),
-                    'sentiment': predicted_tuple[4],
-                    'intensity': intensity_scores
+                    'aspect_indices': (pair[0], pair[1]),
+                    'opinion_indices': (pair[2], pair[3]),
+                    'sentiment': pair[4],
+                    'intensity': [pair[5] , pair[6]]
                 })
         
-        return p_predicted_set, p_golden_set ,predicted_set, golden_set 
-
-
-    def extract_and_print_triplets(self, predicted_set):
-        sentiment_map = {2: 'negative', 3: 'neutral', 4: 'positive'}
-        
-        for triplet_info in predicted_set:
-            id = triplet_info['id']
-            aspect_indices = triplet_info['aspect_indices']
-            opinion_indices = triplet_info['opinion_indices']
-            sentiment = triplet_info['sentiment']
-            intensity = triplet_info['intensity']
-            
-            # Get the tokenized sentence
-            tokenized_sentence = self.tokenized[self.ids.index(id)]
-            # Extract aspect and opinion words
-            aspect_words = tokenized_sentence[aspect_indices[0]:aspect_indices[1]+1]
-            opinion_words = tokenized_sentence[opinion_indices[0]:opinion_indices[1]+1]
-            
-            # Convert intensity values to strings
-            intensity_str = '#'.join([f"{val:.2f}" for val in intensity])
-            
-            # Format and print the triplet
-            aspect = ''.join(aspect_words)
-            opinion = ''.join(opinion_words)
-            sentiment_label = sentiment_map.get(sentiment, 'unknown')
-            
-            # print(f"id:{id}, tokenized_sentence{tokenized_sentence}")
-            # print(f"aspect_indices{aspect_indices}")
-            # print(f"opinion_indices{opinion_indices}")
-            # print(f"sentiment{sentiment}")
-            # print(f"intensity{intensity}")
-            
-            # print(f"{id}: ({aspect}, {opinion}, {intensity_str})")
+        return p_predicted_set ,predicted_set, golden_set 
 
 
     def score_triplets(self, predicted_set, golden_set):
@@ -371,14 +350,14 @@ class Metric():
         golden_set = set([('-'.join(i.split('-')[0:5])) + '-' + ('-'.join(i.split('-')[6:8])) for i in golden_set])
 
         # 获取 predicted_set 的前 5 个元素的 ID
-        predicted_matched = sorted(list(predicted_set))[:5]
+        predicted_matched = sorted(list(predicted_set))[:10]
         predicted_ids = [i.split('-')[0] for i in predicted_matched]
 
         # 根据 predicted_ids 从 golden_set 中找到匹配的内容
         golden_matched = [item for item in golden_set if item.split('-')[0] in predicted_ids]
 
         # 打印结果
-        print("Predict Matched (前 5 个):", predicted_matched)
+        print("Predict Matched (前 10p 个):", predicted_matched)
         print("Golden Matched (匹配的内容):", golden_matched)
 
         # 确定正确匹配的数量

@@ -11,7 +11,6 @@ import torch.nn.functional as F
 from tqdm import trange
 import datetime
 import os, random
-import numpy as np
 from utils.common_utils import Logging
 
 from utils.data_utils import load_data_instances
@@ -123,8 +122,9 @@ if __name__ == '__main__':
                     {'params': model.bert.parameters(), 'lr': 1e-5},
                     {'params': model.linear1.parameters(), 'lr': 1e-2},
                     {'params': model.cls_linear.parameters(), 'lr': 1e-3},
-                    {'params': model.cls_linear1.parameters(), 'lr': 1e-3}
-                ], lr=1e-3)#SGD, momentum=0.9
+                    {'params': model.cls_linear1.parameters(), 'lr': 1e-3},
+                    {'params': model.intensity_head.parameters(), 'lr': 1e-2}
+                   ], lr=1e-3)#SGD, momentum=0.9  
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[200, 600, 1000], gamma=0.5, verbose=True)
 
 
@@ -244,7 +244,7 @@ if __name__ == '__main__':
                         [intensity_matrix]
                     )
 
-                    p_predicted_set, _, _, _ = metric.get_sets()
+                    p_predicted_set, _, _ = metric.get_sets()
 
                     triplets = []
                     for triplet_info in p_predicted_set:

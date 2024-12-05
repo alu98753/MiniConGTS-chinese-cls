@@ -93,7 +93,7 @@ class Instance(object):
             self.bert_tokens_padded[i] = self.bert_tokens[i]
         
         self.tagging_matrix = self.get_tagging_matrix()
-        self.tagging_matrix = (self.tagging_matrix + self.mask - torch.tensor(1)).long()
+        self.tagging_matrix = (self.tagging_matrix + self.mask - torch.tensor(1)).long() # 表示-1是無效位置
         self.intensity_tagging_matrix = self.get_intensity_tagging_matrix()
         # self.intensity_tagging_matrix = (self.intensity_tagging_matrix + self.mask - torch.tensor(1)).long()
 
@@ -186,15 +186,18 @@ class Instance(object):
             aspect_tags = triplet['target_tags']
             opinion_tags = triplet['opinion_tags']
             sentiment = triplet['sentiment']
+            intensity = triplet['intensity']
+            valence, arousal = map(float, intensity.split("#"))
 
             # 將每個三元組的 intensity 與對應的 aspect_spans 和 opinion_spans 一起存儲
-            intensity_values = triplet.get("intensity", "5.0#5.0")
-            valence, arousal = map(float, intensity_values.split("#"))
+            # intensity_values = triplet.get("intensity", "5.0#5.0")
+            # valence, arousal = map(float, intensity_values.split("#"))
 
             aspect_spans = self.get_spans_from_BIO(aspect_tags)
             opinion_spans = self.get_spans_from_BIO(opinion_tags)
             
             # print(f"原始句子: {self.sentence}")
+            # print(f"intensity_values: {valence},{arousal}")
             # print(f"標記化結果: {self.tokens}")
             # print(f"Ltoken: {len(self.tokens)}")
             # print(f"aspect_tags:{aspect_tags}")
@@ -205,13 +208,13 @@ class Instance(object):
             
             # triplets_in_spans.append((aspect_spans, opinion_spans, sentiment2id[sentiment]))
             # 存儲三元組及對應的 intensity
-            triplets_in_spans.append((aspect_spans, opinion_spans, sentiment2id[sentiment]))
-            intensities.append([valence, arousal])
+            triplets_in_spans.append((aspect_spans, opinion_spans, sentiment2id[sentiment],intensity))
+            # intensities.append([valence, arousal])
         # 保存 intensities 作為張量
 
 
 
-        self.intensities = torch.tensor(intensities, dtype=torch.float32)
+        # self.intensities = torch.tensor(intensities, dtype=torch.float32)
 
         return triplets_in_spans
     
@@ -243,7 +246,6 @@ class Instance(object):
     #             pass
     #             # print(f"Warning: 'I' tag encountered without preceding 'B' at index {i}")
 
-        
     #     return spans
     def get_spans_from_BIO(self, tags):
         def is_english_letter(char):
@@ -316,7 +318,7 @@ class Instance(object):
         # 4: Opinion positive
         token_classes = [0] * self.L_token
         # sentiment2id = {'negative': 2, 'neutral': 3, 'positive': 4}
-        for aspect_spans, opinion_spans, sentiment in self.triplets_in_spans:
+        for aspect_spans, opinion_spans, sentiment ,_ in self.triplets_in_spans:
             # print(f"調試：Aspect span={aspect_spans}, Opinion span={opinion_spans}, Sentiment={sentiment}")
             for a in aspect_spans:
                 _a = copy.deepcopy(a)
@@ -389,7 +391,7 @@ class Instance(object):
             # if len(self.triplets_in_spans) != 3:
             #     print(self.triplets_in_spans)
 
-            aspect_spans, opinion_spans, sentiment = triplet
+            aspect_spans, opinion_spans, sentiment  ,_ = triplet
             # Logging 當前的 triplet 資訊
             # logging.debug(f"Triplet {idx}: Aspect spans={aspect_spans}, Opinion spans={opinion_spans}, Sentiment={sentiment}")
 
@@ -419,6 +421,7 @@ class Instance(object):
                                 # logging.debug(f"Set tagging_matrix[{i}][{j}] = 1")
         
         # logging.debug(f"Completed tagging_matrix for sentence: {self.sentence}")
+        # print(f"tagging_matrix shape = {tagging_matrix.shape}")
 
         return tagging_matrix
 
@@ -430,19 +433,46 @@ class Instance(object):
         intensity_tagging_matrix = torch.zeros((max_sequence_len, max_sequence_len, 2))  # 初始化矩陣
 
         for triplet in self.triplets_in_spans:
-            aspect_spans, opinion_spans, sentiment = triplet
+            aspect_spans, opinion_spans, sentiment , intensity = triplet
+            parts = intensity.split("#")
 
-            # 提取 V 和 A
-            intensity_values = self.triplets[self.triplets_in_spans.index(triplet)].get("intensity", "5.0#5.0")
-            valence, arousal = map(float, intensity_values.split("#"))
-            # print(f"valence{valence}arousal{arousal}")
-            # 填充矩陣
+            '''set tag for sentiment'''
+            # print(f"aspect_spans {aspect_spans}")
+            # print(f"opinion_spans {opinion_spans}")
+            # 計算 intensity 值
+            intensity_value_0 = float(parts[0]) / 10
+            intensity_value_1 = float(parts[1]) / 10
             for aspect_span in aspect_spans:
                 for opinion_span in opinion_spans:
-                    for i in range(aspect_span[0], aspect_span[1] + 1):
-                        for j in range(opinion_span[0], opinion_span[1] + 1):
-                            intensity_tagging_matrix[i, j, 0] = valence
-                            intensity_tagging_matrix[i, j, 1] = arousal
+                    # print(aspect_span)
+                    # print(opinion_span)
+                    al = aspect_span[0]
+                    ar = aspect_span[1]
+                    pl = opinion_span[0]
+                    pr = opinion_span[1]
+                    # 使用矩陣切片操作設置值
+                    intensity_tagging_matrix[al:ar+1, pl:pr+1, 0] = intensity_value_0
+                    intensity_tagging_matrix[al:ar+1, pl:pr+1, 1] = intensity_value_1
+
+                    # for i in range(al, ar+1):
+                    #     for j in range(pl, pr+1):
+                    #         # print(al, ar, pl, pr)
+                    #         # print(i, j)
+                    #         # print(i==al and j==pl)
+                    #         intensity_tagging_matrix[i][j][0] = float(parts[0])/10  # 3 4 5
+                    #         intensity_tagging_matrix[i][j][1] = float(parts[1])/10  # 3 4 5
+                    
+                    # print(f"intensity_tagging_matrix[{i}][{j}[0]] = {intensity_tagging_matrix[i][j][0]}")
+                    # print(f"intensity_tagging_matrix[{i}][{j}[1]] = {intensity_tagging_matrix[i][j][1]}")
+                    # 標記CTD部分 我將其省略  :意思是triplets的才有值 其餘0
+                    # if i==al and j==pl:
+                    #     pass
+                    # else:
+                    #     intensity_tagging_matrix[i][j] = 1  # 1: ctd
+                        # logging.debug(f"Set tagging_matrix[{i}][{j}] = 1")
+        
+        # logging.debug(f"Completed tagging_matrix for sentence: {self.sentence}")
+        # print(f"intensity_tagging_matrix shape = {intensity_tagging_matrix.shape}") 80 80 2
 
         return intensity_tagging_matrix
 
@@ -483,8 +513,8 @@ class DataIterator(object):
             token_classes.append(self.instances[i].token_classes)
 
             # 收集 intensity，並更新批次內的最大三元組數量
-            intensities.append(self.instances[i].intensities)
-            max_triplets = max(max_triplets, self.instances[i].intensities.shape[0])
+            # intensities.append(self.intensity[i].intensity)
+            # max_triplets = max(max_triplets, self.instances[i].intensities.shape[0])
             intensity_tagging_matrices.append(self.instances[i].intensity_tagging_matrix)
 
         # print("調試點5 Original Intensities:", intensities)  # 調試點5
@@ -497,33 +527,35 @@ class DataIterator(object):
         # print(f"Max triplets in batch: {max_triplets}")
 
         # 對 intensities 進行補零
-        padded_intensities = []
-        for intensity in intensities:
-            pad = torch.zeros(max_triplets - intensity.shape[0], 2)
-            padded_intensities.append(torch.cat([intensity, pad], dim=0))
-        # print(f"Batch {index} Intensities: {intensities}")
-        # print(f"Padded Intensities Shape: {intensities.shape}")
+        # padded_intensities = []
+        # for intensity in intensities:
+        #     pad = torch.zeros(max_triplets - intensity.shape[0], 2)
+        #     padded_intensities.append(torch.cat([intensity, pad], dim=0))
+        # # print(f"Batch {index} Intensities: {intensities}")
+        # # print(f"Padded Intensities Shape: {intensities.shape}")
 
-        # 堆疊後轉為張量
-        intensities = torch.stack(padded_intensities).to(self.args.device)
+        # # 堆疊後轉為張量
+        # intensities = torch.stack(padded_intensities).to(self.args.device)
         # print("調試點6 Padded Intensities:", intensities)  # 調試點6
 
         # 標準化
         # intensities = intensities / 10.0 
-        batch_mean = torch.mean(intensities[intensities != 0])  # 過濾補零部分
-        batch_std = torch.std(intensities[intensities != 0])
+        # batch_mean = torch.mean(intensities[intensities != 0])  # 過濾補零部分
+        # batch_std = torch.std(intensities[intensities != 0])
 
         # intensity_tagging_matrices標準化
-        intensities = (intensities - batch_mean) / batch_std
-        max_seq_len = self.args.max_sequence_len
-        padded_intensity_matrices = []
-        for matrix in intensity_tagging_matrices:
-            pad = torch.zeros(max_seq_len - matrix.shape[0], max_seq_len, 2)
-            padded_matrix = torch.cat([matrix, pad], dim=0)
-            pad = torch.zeros(max_seq_len, max_seq_len - padded_matrix.shape[1], 2)
-            padded_matrix = torch.cat([padded_matrix, pad], dim=1)
-            padded_intensity_matrices.append(padded_matrix)
-        intensity_tagging_matrices = torch.stack(padded_intensity_matrices).to(self.args.device)
+        # intensities = (intensities - batch_mean) / batch_std
+        # max_seq_len = self.args.max_sequence_len
+        # padded_intensity_matrices = []
+        # for matrix in intensity_tagging_matrices:
+        #     pad = torch.zeros(max_seq_len - matrix.shape[0], max_seq_len, 2)
+        #     padded_matrix = torch.cat([matrix, pad], dim=0)
+        #     pad = torch.zeros(max_seq_len, max_seq_len - padded_matrix.shape[1], 2)
+        #     padded_matrix = torch.cat([padded_matrix, pad], dim=1)
+        #     padded_intensity_matrices.append(padded_matrix)
+        # intensity_tagging_matrices = torch.stack(padded_intensity_matrices).to(self.args.device)
+        intensity_tagging_matrices = torch.stack(intensity_tagging_matrices).to(self.args.device)
+        # print(f"intensity_tagging_matrices shape: {intensity_tagging_matrices.shape}") 16 80 80 2
 
         # 將數據處理為張量並返回
         if len(bert_tokens) == 0:
@@ -547,7 +579,7 @@ class DataIterator(object):
         # print(f"CL masks shape: {cl_masks.shape}, device: {cl_masks.device}")
 
         # return sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes
-        return sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes, intensities , intensity_tagging_matrices, batch_mean, batch_std
+        return sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes , intensity_tagging_matrices #, batch_mean, batch_std
 
 
 if __name__ == "__main__":

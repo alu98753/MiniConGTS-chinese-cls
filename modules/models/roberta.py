@@ -1,6 +1,7 @@
 import torch
 from transformers import RobertaModel
 
+import torch.nn as nn
 
 class Model(torch.nn.Module):
     def __init__(self, args):
@@ -17,9 +18,24 @@ class Model(torch.nn.Module):
         self.cls_linear1 = torch.nn.Linear(self.args.max_sequence_len, 2)  # opinion分類頭
         # self.intensity_head = torch.nn.Linear(args.max_sequence_len, 22)  # 分別對 V 和 A 分成 11 個類別
                                             # args.max_sequence_len?features.shape[-1]
-        self.intensity_head = torch.nn.Linear(self.args.max_sequence_len, 2)  # 輸出 V 和 A 的連續值
+        self.intensity_head = nn.Sequential(
+            nn.Linear(self.args.max_sequence_len, 64),
+            nn.LeakyReLU(),
+            nn.Dropout(0.2),  # 增加 Dropout
+            nn.Linear(64, 2)  # 最終輸出 V 和 A
+        )
 
         self.gelu = torch.nn.GELU()
+        # 初始化权重
+    #     self._initialize_weights()
+
+    # def _initialize_weights(self):
+    #     # Xavier 初始化用于防止梯度消失或爆炸
+    #     for module in self.modules():
+    #         if isinstance(module, nn.Linear):
+    #             nn.init.xavier_uniform_(module.weight)
+    #             if module.bias is not None:
+                    # nn.init.zeros_(module.bias)
 
     def forward(self, tokens, masks):
         # print("tokens shape:", tokens.shape)
@@ -52,7 +68,9 @@ class Model(torch.nn.Module):
         logits1 = self.cls_linear1(hidden) # opinion分類輸出
         # intensity回歸輸出
         intensity_logits = self.intensity_head(hidden)
+        # intensity_logits = self.intensity_head(hidden) * 10
 
+        intensity_logits = torch.sigmoid(self.intensity_head(hidden))
 
         # intensity_scores = torch.sigmoid(self.intensity_linear(bert_feature[:, 0, :]))  # Min-Max Scaling 將輸出值縮放到 [0, 1] # 使用 [CLS] token 的特徵
 
