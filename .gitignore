@@ -5,6 +5,12 @@ __pycache__/
 
 # C extensions
 *.so
+*.exe
+*.bat
+*.ps1
+*.cfg
+
+activate
 
 # Distribution / packaging
 .Python

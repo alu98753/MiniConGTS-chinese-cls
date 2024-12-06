@@ -177,10 +177,10 @@ class Metric():
                 # [[1, 3, 6, 6, 5], [9, 11, 13, 13, 5]]
                 # [[1, 3, 6, 6, 5], [9, 11, 13, 13, 5], [16, 16, 15, 15, 5]]
         if not triplets:
-            return triplets
+            return triplets ,tokenized
 
         # self.compare_triplets(triplets, tokenized, ws)        
-        return triplets
+        return triplets ,tokenized
     
     # def get_sets(self):
     #     assert len(self.predictions) == len(self.goldens)
@@ -259,7 +259,7 @@ class Metric():
             tag[-1][:] = -1
             tag[:, 0] = -1
             tag[:, -1] = -1
-            predicted_triplets = self.find_triplet(tag, self.tokens_ranges[i], self.tokenized[i] , np.array(self.predicted_intensities[i]))
+            predicted_triplets , tokenized = self.find_triplet(tag, self.tokens_ranges[i], self.tokenized[i] , np.array(self.predicted_intensities[i]))
 
             # predict symetric
             for pair in predicted_triplets:
@@ -289,6 +289,7 @@ class Metric():
 
                 p_predicted_set.append({
                     'id': id,
+                    'tokens':tokenized ,
                     'aspect_indices': (pair[0], pair[1]),
                     'opinion_indices': (pair[2], pair[3]),
                     'sentiment': pair[4],

@@ -34,10 +34,10 @@ def evaluate(model, dataset, stop_words, logging, args):
                 
             #     logging(f"Sentence ID: {sentence_id}")
             #     logging(f"Intensity Matrix:\n{intensity_matrix}")
-            # print(f"(len(intensity_tagging_matrices)):{(len(intensity_tagging_matrices))}") # 16
-            # true_intensities = []
-            # pred_intensities = []
-            # for batch_idx in range(len(intensity_tagging_matrices)):  # 16次 遍歷 batch 16*100*100*2
+            # # print(f"(len(intensity_tagging_matrices)):{(len(intensity_tagging_matrices))}") # 16
+            # # true_intensities = []
+            # # pred_intensities = []
+            # # for batch_idx in range(len(intensity_tagging_matrices)):  # 16次 遍歷 batch 16*100*100*2
             #     sentence_id = sentence_ids[batch_idx]
             #     # print(f"sentence_id:{sentence_id}")
             #     intensity_tagging_matrix = intensity_tagging_matrices[batch_idx] # 100*100*2
@@ -45,31 +45,30 @@ def evaluate(model, dataset, stop_words, logging, args):
             #     # v = round(float(intensity_tagging_matrix[..., 0].max()) ,0)  # 四捨五入為整數
             #     # a = round(float(intensity_tagging_matrix[..., 1].max()) ,0)
 
-
             #     # # print(f"intensity: {v},{a}") 
             #     # true_intensities.append([v,a])
             
-            # # print(f"intensity_pred.size(0):{intensity_pred.size(0)}")
-            # for batch_idx in range(intensity_pred.size(0)):  # 遍歷第 0 維 (batch)
+            # # # print(f"intensity_pred.size(0):{intensity_pred.size(0)}")
+            # # for batch_idx in range(intensity_pred.size(0)):  # 遍歷第 0 維 (batch)
 
-                # 提取當前批次的數據
-                # intensity_pred_matrix = intensity_pred[batch_idx]  # 形狀 [100, 100, 2]
+            #     提取當前批次的數據
+            #     intensity_pred_matrix = intensity_pred[batch_idx]  # 形狀 [100, 100, 2]
 
-                # 確保有內容可處理
-                # if intensity_matrix.numel() > 0:  # 如果張量有內容
-                #     v_pred = round(float(intensity_matrix[..., 0].max()) ,0)  # 四捨五入為整數
-                #     a_pred = round(float(intensity_matrix[..., 1].max()) ,0)
+            #     確保有內容可處理
+            #     if intensity_matrix.numel() > 0:  # 如果張量有內容
+            #         v_pred = round(float(intensity_matrix[..., 0].max()) ,0)  # 四捨五入為整數
+            #         a_pred = round(float(intensity_matrix[..., 1].max()) ,0)
 
-                # else:  # 如果沒有內容，使用預設值
-                #     v_pred, a_pred = 5.0, 5.0
+            #     else:  # 如果沒有內容，使用預設值
+            #         v_pred, a_pred = 5.0, 5.0
 
-                # # print(f"intensity pred: {v_pred},{a_pred}") 
-                # pred_intensities.append([v_pred,a_pred])
+            #     # print(f"intensity pred: {v_pred},{a_pred}") 
+            #     pred_intensities.append([v_pred,a_pred])
                 
 
-                # logging(f"Sentence ID: {sentence_id}")
-                # logging(f"intensity_tagging_matrix :\n{intensity_tagging_matrix}")
-            # print(all_intensities)
+            #     logging(f"Sentence ID: {sentence_id}")
+            #     logging(f"intensity_tagging_matrix :\n{intensity_tagging_matrix}")
+            # # print(all_intensities)
             # 反標準化處理
             # predicted_intensities = (intensity_pred * batch_std) + batch_mean  # 反標準化預測值
             # true_intensities = (intensities * batch_std) + batch_mean  # 反標準化真實值

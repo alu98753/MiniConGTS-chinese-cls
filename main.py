@@ -188,82 +188,269 @@ if __name__ == '__main__':
     
     
     ######################
-    def predict_sentences(model, tokenizer, sentences, args):
+    # def predict_sentences(model, tokenizer,ids, sentences, args):
+    #     model.eval()
+    #     results = []
+    #     batch_size = args.batch_size
+
+    #     # 初始化 Instance 並生成 word_spans
+    #     instances = [Instance(tokenizer, {"id": str(idx), "sentence": sentence, "triples": []}, args) 
+    #                 for idx, sentence in enumerate(sentences)]
+    #     token_ranges = [instance.word_spans for instance in instances]
+    #     tokenized_sentences = [instance.tokens for instance in instances]
+
+    #     with torch.no_grad():
+    #         all_ids = []
+    #         all_preds = []
+    #         all_labels = []
+    #         # all_lengths = []
+    #         all_sens_lengths = []
+    #         all_token_ranges = []
+    #         all_tokenized = []
+    #         all_intensities = []  # 標準化後的真實值 # 反標準化的真實值
+    #         all_intensity_pred = []  # 標準化後的預測值 # 反標準化的預測值
+        
+    #         for batch_start in range(0, len(sentences), batch_size):
+    #             id_batch = ids[batch_start:batch_start + batch_size]
+    #             batch_sentences = sentences[batch_start:batch_start + batch_size]
+    #             batch_token_ranges = token_ranges[batch_start:batch_start + batch_size]
+    #             batch_tokenized = tokenized_sentences[batch_start:batch_start + batch_size]
+
+    #             # Tokenize batch
+    #             encoded = tokenizer(
+    #                 batch_sentences,
+    #                 padding="max_length",
+    #                 truncation=True,
+    #                 max_length=args.max_sequence_len,
+    #                 return_tensors='pt'
+    #             )
+
+    #             tokens_tensor = encoded['input_ids'].to(args.device)
+    #             attention_mask = encoded['attention_mask'].to(args.device)
+
+    #             # Construct masks_tensor for batched input
+    #             masks_tensor = attention_mask.unsqueeze(1) * attention_mask.unsqueeze(2)
+
+    #             # Model inference
+    #             logits, _, _, intensity_pred = model(tokens_tensor, masks_tensor)
+    #             # print(f"intensity_logits shape: {intensity_pred.shape}")
+    #             preds = torch.argmax(logits, dim=3) #2
+    #             all_preds.append(preds) #3
+    #             all_labels.append(preds) #4
+    #             # all_lengths.append(lengths) #5
+    #             sens_lens = [len(token_range) for token_range in token_ranges]
+    #             all_sens_lengths.extend(sens_lens) #6
+    #             all_token_ranges.extend(token_ranges) #7
+    #             all_ids.extend(id_batch) #8
+    #             all_tokenized.extend(batch_tokenized)
+    #             # intensity 處  
+    #             all_intensity_pred.append(intensity_pred)
+    #             all_intensities.append(intensity_pred)
+    #             # Process predictions and intensities
+    #             # for idx, sentence in enumerate(batch_sentences):
+    #             #     pred_matrix = preds[idx].cpu().numpy()
+    #             #     intensity_matrix = []
+    #             #     print(f"intensity_logits[idx] shape: {intensity_logits[idx].shape}")
+
+    #             #     valence_pred = intensity_logits[idx][..., 0].max().item()
+    #             #     arousal_pred = intensity_logits[idx][..., 1].max().item()
+    #             #     print(f"valence_pred: {valence_pred}")
+    #             #     print(f"arousal_pred: {arousal_pred}")
+
+    #             #     intensity_matrix.append([valence_pred, arousal_pred])
+    #             #     # Collect results for metrics
+    #             #     all_preds.append(pred_matrix)
+    #             #     all_ids.append(str(batch_start + idx))
+    #             #     all_tokenized.append(batch_tokenized[idx])
+    #             #     all_sens_lengths.append(len(batch_token_ranges[idx]))
+    #             #     all_token_ranges.append(batch_token_ranges[idx])
+    #             #     all_intensities.append([[0.0, 0.0]])  # Placeholder for actual values
+    #             #     all_intensity_pred.append(intensity_matrix)
+    #         all_preds = torch.cat([torch.tensor(p) for p in all_preds], dim=0).cpu().tolist()
+    #         all_labels = torch.cat([torch.tensor(l) for l in all_labels], dim=0).cpu().tolist()
+    #         all_intensity_pred = torch.cat([torch.tensor(ip) for ip in all_intensity_pred], dim=0).cpu().tolist()
+    #         all_intensities = torch.cat([torch.tensor(i) for i in all_intensities], dim=0).cpu().tolist()
+
+    #         # Metric calculation
+    #         metric = Metric(
+    #             args,
+    #             stop_words,
+    #             all_tokenized,
+    #             all_ids,
+    #             all_preds,
+    #             all_preds,  # Placeholder labels (if not available)
+    #             all_sens_lengths,
+    #             all_token_ranges,
+    #             all_intensities,
+    #             all_intensity_pred
+    #         )
+
+    #         p_predicted_set, _, _ = metric.get_sets()
+
+    #         triplets = []
+    #         for triplet_info in p_predicted_set:
+    #             # 擷取 aspect 和 opinion 的 indices 與強度值
+    #             tokens = triplet_info['tokens']
+    #             aspect_indices = triplet_info['aspect_indices']
+    #             opinion_indices = triplet_info['opinion_indices']
+    #             intensity = triplet_info['intensity']
+
+    #             # 強度值放大並格式化
+    #             # print(f"Original intensity: {intensity}")
+    #             # scaled_intensity = [val * 10 for val in intensity]
+    #             # print(f"Scaled intensity: {scaled_intensity}")
+
+    #             # 提取 tokens 中的 aspect 和 opinion 詞彙
+    #             aspect_words = tokens[aspect_indices[0]-1:aspect_indices[1] ]
+    #             opinion_words = tokens[opinion_indices[0]:opinion_indices[1] + 1]
+
+    #             # 將強度轉為字串格式
+    #             intensity_str = '#'.join([f"{val:.2f}" for val in intensity])
+    #             # print(f"Formatted intensity string: {intensity_str}")
+
+    #             # 組合 triplet 並新增到 triplets 列表中
+    #             triplets.append({
+    #                 # 'id'
+    #                 'aspect': ' '.join(aspect_words),  # 合併成字串
+    #                 'opinion': ' '.join(opinion_words),  # 合併成字串
+    #                 'intensity': intensity_str
+    #             })
+    #             # print(f"triplets :{triplets}")
+    #         # 組合句子與 triplets，並新增到結果中
+    #         results.append({
+    #             'id': id_,
+    #             'sentence': batch_sentences,
+    #             'triplets': triplets
+    #         })
+
+    #     return results
+
+    import torch
+    import numpy as np
+
+    def create_instances_for_prediction(tokenizer, ids, sentences, args):
+        instances = []
+        for id_, sentence in zip(ids, sentences):
+            # 將triples空集合，使Instance不報錯
+            single_sentence_pack = {
+                'id': id_,
+                'sentence': sentence,
+                'triples': []  # 預測模式無標註資料
+            }
+            instance = Instance(tokenizer, single_sentence_pack, args)
+            instances.append(instance)
+        return instances
+
+    def find_triplet(tag, ws, tokenized, predicted_intensities_matrix, sentiment2id, stop_words=[]):
+        triplets = []
+        for row in range(1, tag.shape[0]-1):
+            for col in range(1, tag.shape[1]-1):
+                if row == col:
+                    pass
+                elif tag[row][col] in sentiment2id.values():
+                    # 取得評價情緒標籤，但我們最終不輸出
+                    # sentiment = int(tag[row][col])
+                    al, pl = row, col
+                    ar = al
+                    pr = pl
+                    # 展開 aspect 與 opinion 範圍
+                    while ar+1 < tag.shape[0] and tag[ar+1][pr] == 1:
+                        ar += 1
+                    while pr+1 < tag.shape[1] and tag[ar][pr+1] == 1:
+                        pr += 1
+
+                    # 從預測的 intensity 中計算 v、a
+                    # 原本是四捨五入並轉int，現在直接保留浮點並格式化輸出
+                    sub_matrix_0 = predicted_intensities_matrix[al:ar+1, pl:pr+1, 0]
+                    sub_matrix_1 = predicted_intensities_matrix[al:ar+1, pl:pr+1, 1]
+                    v = sub_matrix_0.mean().item() * 10  # 將原本0~1範圍的值乘10
+                    a = sub_matrix_1.mean().item() * 10
+
+                    aspect_text = "".join(tokenized[al:ar+1])
+                    opinion_text = "".join(tokenized[pl:pr+1])
+
+                    # 不再存 sentiment，直接存回 (aspect, opinion, v, a)
+                    triplets.append((aspect_text, opinion_text, v, a))
+
+        return triplets
+
+
+    def predict_sentences(model, tokenizer, ids, sentences, args, output_file=None):
         model.eval()
+        device = args.device
+        stop_words = []
+        sentiment2id = args.sentiment2id
+
+        # 建立預測用的 instances
+        instances = create_instances_for_prediction(tokenizer, ids, sentences, args)
+        dataset = DataIterator(instances, args)
+
         results = []
-        batch_size = args.batch_size
-
-        # 需要從 Instance 初始化 word_spans
-        instances = [Instance(tokenizer, {"id": str(idx), "sentence": sentence, "triples": []}, args) 
-                    for idx, sentence in enumerate(sentences)]
-
-        # 生成每個句子的 word_spans
-        token_ranges = [instance.word_spans for instance in instances]
-        tokenized_sentences = [instance.tokens for instance in instances]
-
         with torch.no_grad():
-            for batch_start in range(0, len(sentences), batch_size):
-                batch_sentences = sentences[batch_start:batch_start + batch_size]
-                batch_token_ranges = token_ranges[batch_start:batch_start + batch_size]
-                batch_tokenized = tokenized_sentences[batch_start:batch_start + batch_size]
+            for i in range(dataset.batch_count):
+                (sentence_ids, 
+                bert_tokens, 
+                masks, 
+                word_spans, 
+                tagging_matrices, 
+                tokenized, 
+                cl_masks, 
+                token_classes, 
+                intensity_tagging_matrices) = dataset.get_batch(i)
 
-                # Tokenize batch
-                encoded = tokenizer(
-                    batch_sentences,
-                    padding="max_length",
-                    truncation=True,
-                    max_length=args.max_sequence_len,
-                    return_tensors='pt'
-                )
+                logits, logits1, sim_matrix, intensity_pred = model(bert_tokens, masks)
+                preds = torch.argmax(logits, dim=3).cpu().numpy()  # [batch, seq_len, seq_len]
+                intensity_pred = intensity_pred.cpu().numpy()       # [batch, seq_len, seq_len, 2]
 
-                tokens_tensor = encoded['input_ids'].to(args.device)
-                attention_mask = encoded['attention_mask'].to(args.device)
+                for b_idx, id_ in enumerate(sentence_ids):
+                    tag = preds[b_idx]
 
-                # Construct masks_tensor for batched input
-                masks_tensor = attention_mask.unsqueeze(1) * attention_mask.unsqueeze(2)
+                    # 邊界位置設為 -1
+                    tag[0, :] = -1
+                    tag[-1, :] = -1
+                    tag[:, 0] = -1
+                    tag[:, -1] = -1
 
-                # Model inference
-                logits, _, _, intensity_scores = model(tokens_tensor, masks_tensor)
-                preds = torch.argmax(logits, dim=3)
+                    predicted_triplets = find_triplet(tag,
+                                                    word_spans[b_idx],
+                                                    tokenized[b_idx],
+                                                    intensity_pred[b_idx],
+                                                    sentiment2id,
+                                                    stop_words)
 
-                for idx, sentence in enumerate(batch_sentences):
-                    tokens = tokenizer.convert_ids_to_tokens(tokens_tensor[idx])
-                    pred_matrix = preds[idx].cpu().numpy()
-                    intensity_matrix = intensity_scores[idx].cpu().tolist()
+                    # 格式化輸出 (aspect, opinion, v#a)
+                    # v, a 以小數點後兩位格式化，並以#分隔
+                    triplet_str = "".join([
+                        f"({asp},{op},{v:.2f}#{a:.2f})"
+                        for (asp, op, v, a) in predicted_triplets
+                    ])
 
-                    metric = Metric(
-                        args,
-                        stop_words,
-                        [batch_tokenized[idx]],
-                        [str(batch_start + idx)],
-                        [pred_matrix],
-                        [np.zeros_like(pred_matrix)],
-                        [len(batch_token_ranges[idx])],
-                        [batch_token_ranges[idx]],
-                        [[0.0, 0.0]],
-                        [intensity_matrix]
-                    )
+                    results.append({"id": id_, "triplets_str": triplet_str})
 
-                    p_predicted_set, _, _ = metric.get_sets()
-
-                    triplets = []
-                    for triplet_info in p_predicted_set:
-                        aspect_indices = triplet_info['aspect_indices']
-                        opinion_indices = triplet_info['opinion_indices']
-                        intensity = triplet_info['intensity']
-                        intensity = intensity*10 # 返回正確輸出
-                        aspect_words = tokens[aspect_indices[0]:aspect_indices[1] + 1]
-                        opinion_words = tokens[opinion_indices[0]:opinion_indices[1] + 1]
-                        intensity_str = '#'.join([f"{val:.2f}" for val in intensity])
-
-                        triplets.append((aspect_words, opinion_words, intensity_str))
-
-                    results.append({
-                        'sentence': sentence,
-                        'triplets': triplets
-                    })
+        if output_file is not None:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                # 無需列出標題行，如需可自行新增
+                f.write(f"ID Triplets\n")
+                for res in results[1:]:  # 跳過第一個元素                    
+                    # 最終格式範例：
+                    # E0002:S002 (餐點,美味,6.63#4.63)(上菜速度,飛快,7.25#6.00)
+                    # 此處 res["triplets_str"] 已經整理好
+                    f.write(f"{res['id']} {res['triplets_str']}\n")
 
         return results
+
+
+# 使用範例:
+# model = torch.load(saved_model_path)
+# model.to(args.device)
+# ids = ["E0002:S002", "R3453:S019"]
+# sentences = ["餐點真的很美味，上菜速度也很快！", "蝦子肉質相當好而且鮮甜"]
+# predict_results = predict_sentences(model, tokenizer, ids, sentences, args, output_file="prediction_results.txt")
+# print(predict_results)
+
+# 輸出示例:
+# E0002:S002 (餐點,美味,6.63#4.63)(上菜速度,飛快,7.25#6.00)
+# R3453:S019 (蝦子肉質,好,4.00#6.00)(蝦子肉質,鮮甜,4.00#6.00)
 
     if args.mode == 'train':
         # Run train
@@ -273,7 +460,7 @@ if __name__ == '__main__':
     elif args.mode == 'predict':
         # Load the pre-trained model
         # saved_model_path = os.path.join(args.model_save_dir, "best_model_ch_best.pt")
-        saved_model_path = os.path.join(r"E:\NYCU-Project\Class\NLP\MiniConGTS_copy_ch_cantrain\modules\models\saved_models\best_model_ch_best.pt")
+        saved_model_path = os.path.join(r"E:\NYCU-Project\Class\NLP\MiniConGTS-chinese\modules\models\saved_models\best_model_ch.pt")
         
         if not os.path.exists(saved_model_path):
             raise FileNotFoundError(f"模型文件 {saved_model_path} 未找到。")
@@ -283,7 +470,7 @@ if __name__ == '__main__':
 
         # Load input sentences
         ## 需改動:
-        with open(r"E:\NYCU-Project\Class\NLP\MiniConGTS_copy_ch_cantrain\data\D1\res14\NYCU_NLP_113A_Validation.txt", 'r', encoding='utf-8') as f:
+        with open(r"E:\NYCU-Project\Class\NLP\MiniConGTS-chinese\data\D1\res14\NYCU_NLP_113A_Test.txt", 'r', encoding='utf-8') as f:
             lines = [line.strip().split(',', 1) for line in f.readlines()]
 
         if not all(len(line) == 2 for line in lines):
@@ -293,16 +480,5 @@ if __name__ == '__main__':
         sentences = [line[1] for line in lines]
 
         # Process sentences in batches
-        results = predict_sentences(model, tokenizer, sentences, args)
-
-        # Save results to output file
-        with open(args.output_file, 'w', encoding='utf-8') as f:
-            f.write(f"ID Triplets\n")
-            for id_, result in zip(ids, results):
-                triplets_str = "".join([f"({''.join(t[0])},{''.join(t[1])},{t[2]})" for t in result['triplets']])
-                f.write(f"{id_} {triplets_str}\n")
-
-        print(f"预测结果已保存到 {args.output_file}")
-
-
- 
+        predict_results = predict_sentences(model, tokenizer, ids, sentences, args, output_file=args.output_file)
+        # print(predict_results)
