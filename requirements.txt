@@ -1,5 +1,5 @@
 transformers==4.31.0
-torch==2.0.1        
+# torch==2.0.1        
 numpy==2.0.2         
 tqdm==4.66.1         
 argparse==1.4.0      

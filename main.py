@@ -32,6 +32,7 @@ from data.data_preparing import Instance
 
 if __name__ == '__main__':
     torch.cuda.set_device(0)
+    print(f"the GPU use now: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--max_sequence_len', type=int, default=100, help='max length of the tagging matrix')
@@ -116,15 +117,20 @@ if __name__ == '__main__':
     testset = DataIterator(test_instances, args)
 
 
-
+    if torch.cuda.is_available():
+        device = torch.device(args.device)
+        print("Using CUDA device")
+    else:
+        device = torch.device('cpu')
+        print("Using CPU device")
     model = Model(args).to(args.device)
     optimizer = torch.optim.Adam([
                     {'params': model.bert.parameters(), 'lr': 1e-5},
                     {'params': model.linear1.parameters(), 'lr': 1e-2},
                     {'params': model.cls_linear.parameters(), 'lr': 1e-3},
                     {'params': model.cls_linear1.parameters(), 'lr': 1e-3},
-                    {'params': model.intensity_head.parameters(), 'lr': 1e-2}
-                   ], lr=1e-3)#SGD, momentum=0.9  
+                    {'params': model.cls_linear_valence.parameters(), 'lr': 1e-3},
+                    {'params': model.cls_linear_arousal.parameters(), 'lr': 1e-3}], lr=1e-3)#SGD, momentum=0.9  
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[200, 600, 1000], gamma=0.5, verbose=True)
 
 
@@ -134,6 +140,28 @@ if __name__ == '__main__':
 
     weight1 = torch.tensor([1.0, 4.0]).float().cuda()
     f_loss1 = FocalLoss(weight1, ignore_index=-1)
+
+    weight2 = torch.tensor([1.0, 6.73, 12.30, 1.77, 5.60, 119.05]).float().cuda()
+    f_loss2 = FocalLoss(weight2, ignore_index=-1)#.forwardf_loss(preds,labels)
+
+    weight3 = torch.tensor([1.0, 54.95, 3.17, 1.79, 10.31, 88.50]).float().cuda()
+    f_loss3 = FocalLoss(weight3, ignore_index=-1)
+
+    '''
+    Intensity ������� (v):
+    Intensity: 4, ���: 14.86%
+    Intensity: 5, ���: 8.13%
+    Intensity: 6, ���: 56.55%
+    Intensity: 7, ���: 17.86%
+    Intensity: 8, ���: 0.84%
+
+    Intensity ������� (a):
+    Intensity: 4, ���: 1.82%
+    Intensity: 5, ���: 31.58%
+    Intensity: 6, ���: 55.77%
+    Intensity: 7, ���: 9.70%
+    Intensity: 8, ���: 1.13%
+'''
 
     '''
     ## beta_1 和 beta_2 : weight of loss function 
@@ -161,169 +189,8 @@ if __name__ == '__main__':
     last = 10     # Duration for which contrastive learning remains active
     # trainer = Trainer(model, trainset, devset, testset, optimizer, (f_loss, f_loss1), lr_scheduler, args, logging)
 
-
-    
-    # Run evaluation
-
-    # Load a pre-trained model for evaluation
-    # saved_model_path = "/mnt/md0/chen-wei/zi/MiniConGTS_copy/modules/models/saved_models/best_model_ch.pt"
-    # saved_model_path = "/mnt/md0/chen-wei/zi/MiniConGTS_copy/modules/models/saved_models/best_model_eng.pt"
-    
-    
-    # if os.path.exists(saved_model_path):
-    #     logging(f"Loading model from {saved_model_path}")
-    #     model = torch.load(saved_model_path)
-    #     model = model.to(args.device)
-    # else:
-    #     logging(f"Error: Model file {saved_model_path} does not exist.")
-    #     exit(1)
-
-    # # Ensure the model is in evaluation mode
-    # model.eval()
-
     # # Run evaluation
-    # precision, recall, f1 = evaluate(model, testset, stop_words, logging, args)
-    # logging(f"Precision: {precision}, Recall: {recall}, F1: {f1}")
-    
-    
-    
     ######################
-    # def predict_sentences(model, tokenizer,ids, sentences, args):
-    #     model.eval()
-    #     results = []
-    #     batch_size = args.batch_size
-
-    #     # 初始化 Instance 並生成 word_spans
-    #     instances = [Instance(tokenizer, {"id": str(idx), "sentence": sentence, "triples": []}, args) 
-    #                 for idx, sentence in enumerate(sentences)]
-    #     token_ranges = [instance.word_spans for instance in instances]
-    #     tokenized_sentences = [instance.tokens for instance in instances]
-
-    #     with torch.no_grad():
-    #         all_ids = []
-    #         all_preds = []
-    #         all_labels = []
-    #         # all_lengths = []
-    #         all_sens_lengths = []
-    #         all_token_ranges = []
-    #         all_tokenized = []
-    #         all_intensities = []  # 標準化後的真實值 # 反標準化的真實值
-    #         all_intensity_pred = []  # 標準化後的預測值 # 反標準化的預測值
-        
-    #         for batch_start in range(0, len(sentences), batch_size):
-    #             id_batch = ids[batch_start:batch_start + batch_size]
-    #             batch_sentences = sentences[batch_start:batch_start + batch_size]
-    #             batch_token_ranges = token_ranges[batch_start:batch_start + batch_size]
-    #             batch_tokenized = tokenized_sentences[batch_start:batch_start + batch_size]
-
-    #             # Tokenize batch
-    #             encoded = tokenizer(
-    #                 batch_sentences,
-    #                 padding="max_length",
-    #                 truncation=True,
-    #                 max_length=args.max_sequence_len,
-    #                 return_tensors='pt'
-    #             )
-
-    #             tokens_tensor = encoded['input_ids'].to(args.device)
-    #             attention_mask = encoded['attention_mask'].to(args.device)
-
-    #             # Construct masks_tensor for batched input
-    #             masks_tensor = attention_mask.unsqueeze(1) * attention_mask.unsqueeze(2)
-
-    #             # Model inference
-    #             logits, _, _, intensity_pred = model(tokens_tensor, masks_tensor)
-    #             # print(f"intensity_logits shape: {intensity_pred.shape}")
-    #             preds = torch.argmax(logits, dim=3) #2
-    #             all_preds.append(preds) #3
-    #             all_labels.append(preds) #4
-    #             # all_lengths.append(lengths) #5
-    #             sens_lens = [len(token_range) for token_range in token_ranges]
-    #             all_sens_lengths.extend(sens_lens) #6
-    #             all_token_ranges.extend(token_ranges) #7
-    #             all_ids.extend(id_batch) #8
-    #             all_tokenized.extend(batch_tokenized)
-    #             # intensity 處  
-    #             all_intensity_pred.append(intensity_pred)
-    #             all_intensities.append(intensity_pred)
-    #             # Process predictions and intensities
-    #             # for idx, sentence in enumerate(batch_sentences):
-    #             #     pred_matrix = preds[idx].cpu().numpy()
-    #             #     intensity_matrix = []
-    #             #     print(f"intensity_logits[idx] shape: {intensity_logits[idx].shape}")
-
-    #             #     valence_pred = intensity_logits[idx][..., 0].max().item()
-    #             #     arousal_pred = intensity_logits[idx][..., 1].max().item()
-    #             #     print(f"valence_pred: {valence_pred}")
-    #             #     print(f"arousal_pred: {arousal_pred}")
-
-    #             #     intensity_matrix.append([valence_pred, arousal_pred])
-    #             #     # Collect results for metrics
-    #             #     all_preds.append(pred_matrix)
-    #             #     all_ids.append(str(batch_start + idx))
-    #             #     all_tokenized.append(batch_tokenized[idx])
-    #             #     all_sens_lengths.append(len(batch_token_ranges[idx]))
-    #             #     all_token_ranges.append(batch_token_ranges[idx])
-    #             #     all_intensities.append([[0.0, 0.0]])  # Placeholder for actual values
-    #             #     all_intensity_pred.append(intensity_matrix)
-    #         all_preds = torch.cat([torch.tensor(p) for p in all_preds], dim=0).cpu().tolist()
-    #         all_labels = torch.cat([torch.tensor(l) for l in all_labels], dim=0).cpu().tolist()
-    #         all_intensity_pred = torch.cat([torch.tensor(ip) for ip in all_intensity_pred], dim=0).cpu().tolist()
-    #         all_intensities = torch.cat([torch.tensor(i) for i in all_intensities], dim=0).cpu().tolist()
-
-    #         # Metric calculation
-    #         metric = Metric(
-    #             args,
-    #             stop_words,
-    #             all_tokenized,
-    #             all_ids,
-    #             all_preds,
-    #             all_preds,  # Placeholder labels (if not available)
-    #             all_sens_lengths,
-    #             all_token_ranges,
-    #             all_intensities,
-    #             all_intensity_pred
-    #         )
-
-    #         p_predicted_set, _, _ = metric.get_sets()
-
-    #         triplets = []
-    #         for triplet_info in p_predicted_set:
-    #             # 擷取 aspect 和 opinion 的 indices 與強度值
-    #             tokens = triplet_info['tokens']
-    #             aspect_indices = triplet_info['aspect_indices']
-    #             opinion_indices = triplet_info['opinion_indices']
-    #             intensity = triplet_info['intensity']
-
-    #             # 強度值放大並格式化
-    #             # print(f"Original intensity: {intensity}")
-    #             # scaled_intensity = [val * 10 for val in intensity]
-    #             # print(f"Scaled intensity: {scaled_intensity}")
-
-    #             # 提取 tokens 中的 aspect 和 opinion 詞彙
-    #             aspect_words = tokens[aspect_indices[0]-1:aspect_indices[1] ]
-    #             opinion_words = tokens[opinion_indices[0]:opinion_indices[1] + 1]
-
-    #             # 將強度轉為字串格式
-    #             intensity_str = '#'.join([f"{val:.2f}" for val in intensity])
-    #             # print(f"Formatted intensity string: {intensity_str}")
-
-    #             # 組合 triplet 並新增到 triplets 列表中
-    #             triplets.append({
-    #                 # 'id'
-    #                 'aspect': ' '.join(aspect_words),  # 合併成字串
-    #                 'opinion': ' '.join(opinion_words),  # 合併成字串
-    #                 'intensity': intensity_str
-    #             })
-    #             # print(f"triplets :{triplets}")
-    #         # 組合句子與 triplets，並新增到結果中
-    #         results.append({
-    #             'id': id_,
-    #             'sentence': batch_sentences,
-    #             'triplets': triplets
-    #         })
-
-    #     return results
 
     import torch
     import numpy as np
@@ -454,7 +321,7 @@ if __name__ == '__main__':
 
     if args.mode == 'train':
         # Run train
-        trainer = Trainer(model, trainset, devset, testset, optimizer, (f_loss, f_loss1), lr_scheduler, args, logging, beta_1, beta_2, bear_max, last)
+        trainer = Trainer(model, trainset, devset, testset, optimizer, (f_loss, f_loss1,f_loss2, f_loss3), lr_scheduler, args, logging, beta_1, beta_2, bear_max, last)
         trainer.train()
 
     elif args.mode == 'predict':

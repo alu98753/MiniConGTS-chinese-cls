@@ -94,7 +94,7 @@ class Instance(object):
         
         self.tagging_matrix = self.get_tagging_matrix()
         self.tagging_matrix = (self.tagging_matrix + self.mask - torch.tensor(1)).long() # 表示-1是無效位置
-        self.intensity_tagging_matrix = self.get_intensity_tagging_matrix()
+        self.valence_arousal_tagging_matrix = self.get_valence_arousal_tagging_matrix()
         # self.intensity_tagging_matrix = (self.intensity_tagging_matrix + self.mask - torch.tensor(1)).long()
 
  
@@ -125,26 +125,6 @@ class Instance(object):
             mask[i][i] = 0
         return mask
         
-    # def get_word_spans(self):
-    #     '''
-    #     get roberta-token-spans of each word in a single sentence
-    #     according to the rule: each 'Ġ' maps to a single word
-    #     required: tokens = tokenizer.tokenize(sentence, add_prefix_space=True)
-    #     '''
-
-    #     l_indx = 0
-    #     r_indx = 0
-    #     word_spans = []
-    #     while r_indx + 1 < len(self.tokens):
-    #         if self.tokens[r_indx+1][0] == 'Ġ':
-    #             word_spans.append([l_indx, r_indx])
-    #             r_indx += 1
-    #             l_indx = r_indx
-    #         else:
-    #             r_indx += 1
-    #     word_spans.append([l_indx, r_indx])
-    #     return word_spans
-
     def get_word_spans(self):
         """
         根據標記化後的 token 長度，生成 word_spans。
@@ -171,82 +151,89 @@ class Instance(object):
             previous = tag
         return True 
 
+    # def get_triplets_in_spans(self):
+    #     triplets_in_spans = []
+    #     intensities = []
+
+    #     for triplet in self.triplets:
+    #         # if not self.validate_BIO_tags(triplet['target_tags']):
+    #         #     print(f"Invalid target_tags: {triplet['target_tags']}")
+    #         # if not self.validate_BIO_tags(triplet['opinion_tags']):
+    #         #     print(f"Invalid opinion_tags: {triplet['opinion_tags']}")
+
+    #         sentiment2id = {'negative': 2, 'neutral': 3, 'positive': 4}
+
+    #         aspect_tags = triplet['target_tags']
+    #         opinion_tags = triplet['opinion_tags']
+    #         sentiment = triplet['sentiment']
+    #         intensity = triplet['intensity']
+    #         valence, arousal = map(float, intensity.split("#"))
+
+    #         # 將每個三元組的 intensity 與對應的 aspect_spans 和 opinion_spans 一起存儲
+    #         # intensity_values = triplet.get("intensity", "5.0#5.0")
+    #         # valence, arousal = map(float, intensity_values.split("#"))
+
+    #         aspect_spans = self.get_spans_from_BIO(aspect_tags)
+    #         opinion_spans = self.get_spans_from_BIO(opinion_tags)
+            
+    #         # print(f"原始句子: {self.sentence}")
+    #         # print(f"intensity_values: {valence},{arousal}")
+    #         # print(f"標記化結果: {self.tokens}")
+    #         # print(f"Ltoken: {len(self.tokens)}")
+    #         # print(f"aspect_tags:{aspect_tags}")
+    #         # print(f"opinion_tags:{opinion_tags}")
+    #         # print(f"sentiment:{sentiment}")
+    #         # print(f"aspect_spans:{aspect_spans}")
+    #         # print(f"opinion_spans:{opinion_spans}")
+            
+    #         # triplets_in_spans.append((aspect_spans, opinion_spans, sentiment2id[sentiment]))
+    #         # 存儲三元組及對應的 intensity
+    #         triplets_in_spans.append((aspect_spans, opinion_spans, sentiment2id[sentiment],intensity))
+    #         # intensities.append([valence, arousal])
+    #     # 保存 intensities 作為張量
+
+
+
+    #     # self.intensities = torch.tensor(intensities, dtype=torch.float32)
+
+    #     return triplets_in_spans
+    
+    
     def get_triplets_in_spans(self):
         triplets_in_spans = []
-        intensities = []
-
         for triplet in self.triplets:
-            # if not self.validate_BIO_tags(triplet['target_tags']):
-            #     print(f"Invalid target_tags: {triplet['target_tags']}")
-            # if not self.validate_BIO_tags(triplet['opinion_tags']):
-            #     print(f"Invalid opinion_tags: {triplet['opinion_tags']}")
-
             sentiment2id = {'negative': 2, 'neutral': 3, 'positive': 4}
 
             aspect_tags = triplet['target_tags']
             opinion_tags = triplet['opinion_tags']
             sentiment = triplet['sentiment']
-            intensity = triplet['intensity']
-            valence, arousal = map(float, intensity.split("#"))
 
-            # 將每個三元組的 intensity 與對應的 aspect_spans 和 opinion_spans 一起存儲
-            # intensity_values = triplet.get("intensity", "5.0#5.0")
-            # valence, arousal = map(float, intensity_values.split("#"))
-
+            intensity = triplet['intensity']  # 假設每個三元組都包含 Valence 值
+            
             aspect_spans = self.get_spans_from_BIO(aspect_tags)
             opinion_spans = self.get_spans_from_BIO(opinion_tags)
-            
-            # print(f"原始句子: {self.sentence}")
-            # print(f"intensity_values: {valence},{arousal}")
-            # print(f"標記化結果: {self.tokens}")
-            # print(f"Ltoken: {len(self.tokens)}")
-            # print(f"aspect_tags:{aspect_tags}")
-            # print(f"opinion_tags:{opinion_tags}")
-            # print(f"sentiment:{sentiment}")
-            # print(f"aspect_spans:{aspect_spans}")
-            # print(f"opinion_spans:{opinion_spans}")
-            
-            # triplets_in_spans.append((aspect_spans, opinion_spans, sentiment2id[sentiment]))
-            # 存儲三元組及對應的 intensity
-            triplets_in_spans.append((aspect_spans, opinion_spans, sentiment2id[sentiment],intensity))
-            # intensities.append([valence, arousal])
-        # 保存 intensities 作為張量
 
+            # 提取 intensity 中的 v 和 a 值
+            valence_str, arousal_str = intensity.split('#')
 
+            valence = int(round(float(valence_str)))  # 四捨五入並轉為整數 
+            arousal = int(round(float(arousal_str)))   # 四捨五入並轉為整數
 
-        # self.intensities = torch.tensor(intensities, dtype=torch.float32)
+            if valence >8 :
+                valence =8
+            if arousal >8 :
+                arousal =8
+            if valence < 4:
+                valence = 4
+            if arousal <4 :
+                arousal = 4
+
+            valence = valence-3 # 設定 Valence 值 (4~8)-3 
+            arousal = arousal-3
+            triplets_in_spans.append((aspect_spans, opinion_spans, sentiment2id[sentiment], valence, arousal))
 
         return triplets_in_spans
-    
-    
-    # def get_spans_from_BIO(self, tags):
-    #     '''for BIO tag'''
-    #     # print(f"調試Processing tags: {tags}")
-    #     token_ranges = copy.deepcopy(self.word_spans)
-        
-    #     tags = tags.strip().split()
-    #     length = len(tags)
-    #     spans = []
-    #     # 沒這問題
-    #     # if len(tags) != len(token_ranges):
-    #     #     print(f"Error: tags length ({len(tags)}) != token_ranges length ({len(token_ranges)})")
-  
-    #     # start = -1
-    #     for i in range(length):
-    #         # print(i)
-    #         if tags[i].endswith('B'):
-    #             spans.append(token_ranges[i])
-    #             # 遇到一个 B，意味着开启一个新的三元组
-    #             # 接下来需要看有没有跟 I，如果一直跟着 I，则一直扩大这个三元组的span范围，直到后面是 O 或下一个 B为止，此时则重新继续找下一个 B
-    #             # 其实如果一旦找到一个 B 然后直到这个 B 终止于一个 O或下一个 B，这个刚刚被找到的三元组 BI··O/B的范围内就不再会有其他 B，因此不需要回溯，直接 go on
-    #         elif tags[i].endswith('I'):
-    #             if spans:  # 確保 spans 不為空
-    #                 spans[-1][-1] = token_ranges[i][-1]
-    #         else:  # endswith('O')
-    #             pass
-    #             # print(f"Warning: 'I' tag encountered without preceding 'B' at index {i}")
 
-    #     return spans
     def get_spans_from_BIO(self, tags):
         def is_english_letter(char):
             """判斷是否為英文字母"""
@@ -318,7 +305,7 @@ class Instance(object):
         # 4: Opinion positive
         token_classes = [0] * self.L_token
         # sentiment2id = {'negative': 2, 'neutral': 3, 'positive': 4}
-        for aspect_spans, opinion_spans, sentiment ,_ in self.triplets_in_spans:
+        for aspect_spans, opinion_spans, sentiment ,_,_ in self.triplets_in_spans:
             # print(f"調試：Aspect span={aspect_spans}, Opinion span={opinion_spans}, Sentiment={sentiment}")
             for a in aspect_spans:
                 _a = copy.deepcopy(a)
@@ -391,7 +378,7 @@ class Instance(object):
             # if len(self.triplets_in_spans) != 3:
             #     print(self.triplets_in_spans)
 
-            aspect_spans, opinion_spans, sentiment  ,_ = triplet
+            aspect_spans, opinion_spans, sentiment ,_ ,_ = triplet
             # Logging 當前的 triplet 資訊
             # logging.debug(f"Triplet {idx}: Aspect spans={aspect_spans}, Opinion spans={opinion_spans}, Sentiment={sentiment}")
 
@@ -425,56 +412,34 @@ class Instance(object):
 
         return tagging_matrix
 
-    def get_intensity_tagging_matrix(self):
-        """
-        為句子生成 intensity_tagging_matrices，支持 V 和 A 的回歸預測。
-        """
-        max_sequence_len = self.args.max_sequence_len
-        intensity_tagging_matrix = torch.zeros((max_sequence_len, max_sequence_len, 2))  # 初始化矩陣
-
+    def get_valence_arousal_tagging_matrix(self):
+        '''
+        mapping the tags to two separate matrices: Valence Matrix (M_V) and Arousal Matrix (M_A)
+        '''
+        # 初始化矩陣，所有位置初始設為 MSK 類別
+        valence_matrix = torch.full((self.args.max_sequence_len, self.args.max_sequence_len), fill_value=-1, dtype=torch.long)
+        arousal_matrix = torch.full((self.args.max_sequence_len, self.args.max_sequence_len), fill_value=-1, dtype=torch.long)
+    
         for triplet in self.triplets_in_spans:
-            aspect_spans, opinion_spans, sentiment , intensity = triplet
-            parts = intensity.split("#")
-
-            '''set tag for sentiment'''
-            # print(f"aspect_spans {aspect_spans}")
-            # print(f"opinion_spans {opinion_spans}")
-            # 計算 intensity 值
-            intensity_value_0 = float(parts[0]) / 10
-            intensity_value_1 = float(parts[1]) / 10
+            aspect_spans, opinion_spans,_, valence, arousal = triplet
+            
+            # Set the valence and arousal tags for each Aspect-Opinion pair
             for aspect_span in aspect_spans:
                 for opinion_span in opinion_spans:
-                    # print(aspect_span)
-                    # print(opinion_span)
                     al = aspect_span[0]
                     ar = aspect_span[1]
                     pl = opinion_span[0]
                     pr = opinion_span[1]
-                    # 使用矩陣切片操作設置值
-                    intensity_tagging_matrix[al:ar+1, pl:pr+1, 0] = intensity_value_0
-                    intensity_tagging_matrix[al:ar+1, pl:pr+1, 1] = intensity_value_1
+                    for i in range(al, ar + 1):
+                        for j in range(pl, pr + 1):
+                            if i == al and j == pl:
+                                valence_matrix[i][j] = valence  
+                                arousal_matrix[i][j] = arousal  
+                            else:
+                                valence_matrix[i][j] = -1  # 非主要 Aspect-Opinion 組合位置
+                                arousal_matrix[i][j] = -1
 
-                    # for i in range(al, ar+1):
-                    #     for j in range(pl, pr+1):
-                    #         # print(al, ar, pl, pr)
-                    #         # print(i, j)
-                    #         # print(i==al and j==pl)
-                    #         intensity_tagging_matrix[i][j][0] = float(parts[0])/10  # 3 4 5
-                    #         intensity_tagging_matrix[i][j][1] = float(parts[1])/10  # 3 4 5
-                    
-                    # print(f"intensity_tagging_matrix[{i}][{j}[0]] = {intensity_tagging_matrix[i][j][0]}")
-                    # print(f"intensity_tagging_matrix[{i}][{j}[1]] = {intensity_tagging_matrix[i][j][1]}")
-                    # 標記CTD部分 我將其省略  :意思是triplets的才有值 其餘0
-                    # if i==al and j==pl:
-                    #     pass
-                    # else:
-                    #     intensity_tagging_matrix[i][j] = 1  # 1: ctd
-                        # logging.debug(f"Set tagging_matrix[{i}][{j}] = 1")
-        
-        # logging.debug(f"Completed tagging_matrix for sentence: {self.sentence}")
-        # print(f"intensity_tagging_matrix shape = {intensity_tagging_matrix.shape}") 80 80 2
-
-        return intensity_tagging_matrix
+        return valence_matrix, arousal_matrix
 
 
 
@@ -496,9 +461,9 @@ class DataIterator(object):
         cl_masks = []
         token_classes = []
         # 原有代碼...
-        intensities = []
         max_triplets = 0
-        intensity_tagging_matrices = []
+        valence_matrices = []
+        arousal_matrices = []
 
         for i in range(index * self.args.batch_size, min((index + 1) * self.args.batch_size, len(self.instances))):
             sentence_ids.append(self.instances[i].id)
@@ -513,49 +478,11 @@ class DataIterator(object):
             token_classes.append(self.instances[i].token_classes)
 
             # 收集 intensity，並更新批次內的最大三元組數量
-            # intensities.append(self.intensity[i].intensity)
-            # max_triplets = max(max_triplets, self.instances[i].intensities.shape[0])
-            intensity_tagging_matrices.append(self.instances[i].intensity_tagging_matrix)
+            # 獲取 Valence 和 Arousal 矩陣
+            valence_matrix, arousal_matrix = self.instances[i].get_valence_arousal_tagging_matrix()
+            valence_matrices.append(valence_matrix)
+            arousal_matrices.append(arousal_matrix)
 
-        # print("調試點5 Original Intensities:", intensities)  # 調試點5
-
-        # Debug: Check collected data before padding
-        # print(f"Collected bert_tokens shapes: {[bt.shape for bt in bert_tokens]}")
-        # print(f"Collected masks shapes: {[mask.shape for mask in masks]}")
-        # print(f"Collected tagging_matrices shapes: {[tm.shape for tm in tagging_matrices]}")
-        # print(f"Collected intensities shapes: {[intensity.shape for intensity in intensities]}")
-        # print(f"Max triplets in batch: {max_triplets}")
-
-        # 對 intensities 進行補零
-        # padded_intensities = []
-        # for intensity in intensities:
-        #     pad = torch.zeros(max_triplets - intensity.shape[0], 2)
-        #     padded_intensities.append(torch.cat([intensity, pad], dim=0))
-        # # print(f"Batch {index} Intensities: {intensities}")
-        # # print(f"Padded Intensities Shape: {intensities.shape}")
-
-        # # 堆疊後轉為張量
-        # intensities = torch.stack(padded_intensities).to(self.args.device)
-        # print("調試點6 Padded Intensities:", intensities)  # 調試點6
-
-        # 標準化
-        # intensities = intensities / 10.0 
-        # batch_mean = torch.mean(intensities[intensities != 0])  # 過濾補零部分
-        # batch_std = torch.std(intensities[intensities != 0])
-
-        # intensity_tagging_matrices標準化
-        # intensities = (intensities - batch_mean) / batch_std
-        # max_seq_len = self.args.max_sequence_len
-        # padded_intensity_matrices = []
-        # for matrix in intensity_tagging_matrices:
-        #     pad = torch.zeros(max_seq_len - matrix.shape[0], max_seq_len, 2)
-        #     padded_matrix = torch.cat([matrix, pad], dim=0)
-        #     pad = torch.zeros(max_seq_len, max_seq_len - padded_matrix.shape[1], 2)
-        #     padded_matrix = torch.cat([padded_matrix, pad], dim=1)
-        #     padded_intensity_matrices.append(padded_matrix)
-        # intensity_tagging_matrices = torch.stack(padded_intensity_matrices).to(self.args.device)
-        intensity_tagging_matrices = torch.stack(intensity_tagging_matrices).to(self.args.device)
-        # print(f"intensity_tagging_matrices shape: {intensity_tagging_matrices.shape}") 16 80 80 2
 
         # 將數據處理為張量並返回
         if len(bert_tokens) == 0:
@@ -577,9 +504,13 @@ class DataIterator(object):
         # print(f"Masks shape: {masks.shape}, device: {masks.device}")
         # print(f"Tagging matrices shape: {tagging_matrices.shape}, device: {tagging_matrices.device}")
         # print(f"CL masks shape: {cl_masks.shape}, device: {cl_masks.device}")
+        
+        # print(f"intensity_tagging_matrices shape: {intensity_tagging_matrices.shape}") 16 80 80 2
+        valence_matrices = torch.stack(valence_matrices).long().to(self.args.device)
+        arousal_matrices = torch.stack(arousal_matrices).long().to(self.args.device)
 
         # return sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes
-        return sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes , intensity_tagging_matrices #, batch_mean, batch_std
+        return sentence_ids, bert_tokens, masks, word_spans, tagging_matrices, tokenized, cl_masks, token_classes , valence_matrices, arousal_matrices
 
 
 if __name__ == "__main__":
