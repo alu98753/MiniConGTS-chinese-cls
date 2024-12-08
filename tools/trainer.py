@@ -24,7 +24,7 @@ def get_gpu_temperature():
 
 
 class Trainer():
-    def __init__(self, model, trainset, devset, testset, optimizer, criterion, lr_scheduler, args, logging, beta_1, beta_2, bear_max, last, plot=False):
+    def __init__(self, model, trainset, devset, testset, optimizer, criterion, lr_scheduler , lr_scheduler_valence,lr_scheduler_arousal , args, logging, beta_1, beta_2, bear_max, last, plot=False):
         self.model = model
         self.trainset = trainset
         self.devset = devset
@@ -39,11 +39,14 @@ class Trainer():
         # self.intensity_loss_fn = nn.MSELoss()  # intensity損失
 
         self.lr_scheduler = lr_scheduler
+        self.lr_scheduler_valence = lr_scheduler_valence
+        self.lr_scheduler_arousal = lr_scheduler_arousal
         self.best_joint_f1 = 0
         self.best_joint_f1_test = 0
         self.best_joint_epoch = 0
         self.best_joint_epoch_test = 0
-
+        self.joint_intensity_f1_test = 0
+        self.best_joint_intensity_f1 = 0
         self.writer = SummaryWriter()
         self.args = args
         self.logging = logging
@@ -59,7 +62,7 @@ class Trainer():
         self.last = last
         self.contrastive = True
       
-        self.gamma = 0.001  # gamma 初始值
+        self.gamma = 0.3  # gamma 初始值
         self.alpha = 0.2  # 冪次增長速度參數
         self.threshold = 35  # joint_pair_f1 的臨界值
         self.wait_epochs = 1  # joint_pair_f1 需超過閾值的連續 epoch 數
@@ -81,10 +84,20 @@ class Trainer():
         
         return mask
 
+    # 動態計算損失權重
+    def compute_dynamic_weights(self, losses ,priority_indices ):
+        if type(losses) != torch.Tensor:
+            losses = torch.tensor(losses)
+        
+        weights = torch.div(losses , torch.sum(losses)) * losses.shape[0]
+
+        return weights[3],weights[4]
+
         
     def train(self):
         bear = 0
         last = self.last
+        w2 = w3 =1
         
         # 定義輸入模型路徑
         saved_model_path = os.path.join(r"/mnt/md0/chen-winiConGTS_ch_can/modules/models/saved_models/best_model_ch.pt")
@@ -99,12 +112,7 @@ class Trainer():
 
         else:
             print(f"模型檔案 {saved_model_path} 不存在，跳過加載。")
-           
-        # intensity_head学习率初始值
-        current_intensity_lr = intensity_initial_lr = 1e-5
-        intensity_lr_max = 5e-3  # 最大学习
-        self.model = self.model.to(self.args.device)
-        
+                   
         for i in range(self.args.epochs):
             
             # if bear >= self.bear_max and last > 0:
@@ -128,30 +136,16 @@ class Trainer():
                     plot_pca_3d(gathered_token_class_0, gathered_token_class_1, gathered_token_class_2, gathered_token_class_3, gathered_token_class_4, i)
                     
             epoch_sum_loss = []
-            # joint_precision, joint_recall, joint_f1 ,joint_pair_f1= self.evaluate(self.model, self.devset, self.stop_words, self.logging, self.args)
-            # joint_precision_test, joint_recall_test, joint_f1_test,joint_pair_f1_test = self.evaluate(self.model, self.testset, self.stop_words, self.logging, self.args)
-            # 更新計數器
-            # if joint_pair_f1 > self.threshold:
-            #     self.above_threshold_count += 1
-            # else:
-            #     self.above_threshold_count = 0
+            epoch_valence_loss = []
+            epoch_arousal_loss = []
+            joint_precision, joint_recall, joint_f1 ,pair_results ,joint_intensity_f1= self.evaluate(self.model, self.devset, self.stop_words, self.logging, self.args)
+            joint_precision_test, joint_recall_test, joint_f1_test,pair_results_test ,joint_intensity_f1_test = self.evaluate(self.model, self.testset, self.stop_words, self.logging, self.args)
 
-            # 如果計數器達到條件，逐漸增長 intensity_initial_lr
-            # if self.above_threshold_count >= self.wait_epochs:
-            #     current_intensity_lr = min(intensity_initial_lr * (1 + (self.above_threshold_count - self.wait_epochs) *3), intensity_lr_max)
-            #     self.gamma = 0.01
-            # else:
-            #     current_intensity_lr = intensity_initial_lr
-            #     self.gamma = 0.001
-                
-            # # 更新 intensity_head 的学习率
-            # for param_group in self.optimizer.param_groups:
-            #     if 'intensity_head' in str(param_group['params'][0]):
-            #         param_group['lr'] = current_intensity_lr
-
-            # self.logging('\n\nEpoch:{}'.format(i+1))
-            # self.logging(f"contrastive: {self.contrastive} | bear/max: {bear}/{self.bear_max} | last: {last}")
-            # self.logging(f"Epoch {i + 1}: joint_pair_f1 = {joint_pair_f1}, intensity_head LR = {current_intensity_lr:.6f}, above_threshold_count = {self.above_threshold_count}")
+            if pair_results_test > 50:
+                self.gamma = 0.5
+ 
+            self.logging('\n\nEpoch:{}'.format(i+1))
+            self.logging(f"contrastive: {self.contrastive} | bear/max: {bear}/{self.bear_max} | last: {last}")
 
             for j in trange(self.trainset.batch_count):
                 self.model.train().to(self.args.device)
@@ -165,9 +159,6 @@ class Trainer():
                 # sentiment損失計算
                 logits_flatten = logits.reshape([-1, logits.shape[3]])
                 tagging_matrices_flatten = tagging_matrices.reshape([-1])
-                # print(f"logits_flatten shape:{logits_flatten.shape}")
-                # print(f"tagging_matrices_flatten shape:{tagging_matrices_flatten.shape}")                
-
                 loss0 = self.f_loss(logits_flatten, tagging_matrices_flatten)
                 
                 # opinion損失計算
@@ -177,7 +168,6 @@ class Trainer():
                 tags1_flatten = tags1.reshape([-1]).to(self.args.device)
                 loss1 = self.f_loss1(logits1_flatten.float(), tags1_flatten)
 
-                # intensity損失計算               
                 # Valence 損失計算
                 logits_valence_flatten = logits_valence.reshape([-1, logits_valence.shape[3]])
                 valence_labels_flatten = valence_matrices.reshape([-1])
@@ -186,42 +176,9 @@ class Trainer():
                 logits_arousal_flatten = logits_arousal.reshape([-1, logits_arousal.shape[3]])
                 arousal_labels_flatten = arousal_matrices.reshape([-1])
                 
-                print(f"logits_valence shape:{logits_valence.shape}")
-                print(f"valence_matrices shape:{valence_matrices.shape}")
-                print("logits_valence_flatten shape:", logits_valence_flatten.shape)
-                print("valence_labels_flatten min:", valence_labels_flatten.min().item(), "valence_labels_flatten max:", valence_labels_flatten.max().item())
-
                 loss2 = self.f_loss2(logits_valence_flatten, valence_labels_flatten)
 
                 loss3 = self.f_loss3(logits_arousal_flatten, arousal_labels_flatten)
-
-                # --- 生成三元組 Mask ---
-                # mask = self.generate_triplet_mask(tagging_matrices)
-
-                # # --- 過濾有效數據 ---
-                # valid_intensity_logits = intensity_logits[mask]
-                # valid_intensity_tagging_matrices = intensity_tagging_matrices[mask]
-
-                # # --- 計算損失 ---
-                # # 避免空數據導致計算問題
-                # if valid_intensity_logits.numel() > 0:
-                #     intensity_loss = F.mse_loss(valid_intensity_logits, valid_intensity_tagging_matrices)
-                # else:
-                #     intensity_loss = torch.tensor(0.0, device=self.args.device)
-                
-
-                # 合併損失
-                # intensity_loss = (v_loss + a_loss) / 2
-                # self.logging(f" Batch {j} intensity Loss: {intensity_loss}")
-
-                # print("調試點11 Valid Predicted Intensities:", intensity_scores[valid_triplets][:5])  # 有效的預測值
-                # print("調試點11 Valid True Intensities:", intensities[valid_triplets][:5])  # 有效的標籤值
-
-                # Debug: 確認損失值
-                # print(f"Intensity Loss: {intensity_loss.item()}")
-                # print(f"Epoch {i}, Batch {j}, Intensity Loss: {intensity_loss.item()}")
-
-                # print("調試點12 Intensity Loss Value:", intensity_loss.item())
 
                 loss_cl = (sim_matrices * cl_masks).mean()
                 
@@ -229,22 +186,28 @@ class Trainer():
                 #     loss = loss0 + self.beta_1 * loss1 + self.beta_2 * loss_cl
                 # else:
                 #     loss = loss0 + self.beta_1 * loss1
-                
-                
-                # alpha, beta, gamma = 1, 1, 0.002 # 對應 sentiment, opinion, intensity
+                # if joint_pair_f1 > 45:
+                #     losses = [loss0 ,loss1 , loss_cl ,loss2, loss3]
+                #     priority_indices = [3, 4]  # loss2 和 loss3 的索引
 
-
-                # 動態調整 gamma +  
+                #     # 動態調整損失權重
+                #     w2, w3 = self.compute_dynamic_weights(losses, priority_indices)
+                
                 # 合併損失
                 if self.contrastive:
-                    loss = loss0 + self.beta_1 * loss1 + self.beta_2 * loss_cl + self.gamma * (loss2 + loss3) / 2
+                    loss = loss0 + self.beta_1 * loss1 + self.beta_2 * loss_cl + self.gamma * ( loss2 +  loss3)
                 else:
-                    loss = loss0 + self.beta_1 * loss1 + (loss2 + loss3) / 2
-           
-                
+                    loss = loss0 + self.beta_1 * loss1 + ( loss2 +   loss3) 
+                # if self.contrastive:
+                #     loss =  self.beta_1 * loss1 + self.beta_2 * loss_cl + self.gamma * ( loss2 +  loss3)
+                # else:
+                #     loss =  self.beta_1 * loss1 + ( loss2 +   loss3)           
+                # 收集損失值
+
                 # loss = loss0 + self.beta_1 * loss1 + self.beta_2 * loss_cl
                 epoch_sum_loss.append(loss)
-                
+                epoch_valence_loss.append(loss2.item())
+                epoch_arousal_loss.append(loss3.item())
                 self.optimizer.zero_grad()
                 loss.backward()
                 torch.cuda.synchronize()
@@ -252,7 +215,9 @@ class Trainer():
                 nn_utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)  # 裁剪梯度
 
                 self.optimizer.step()
-
+                # 添加学习率打印
+                for i, param_group in enumerate(self.optimizer.param_groups):
+                    self.logging(f"Param group {i}: learning rate = {param_group['lr']}")
                 # self.writer.add_scalar('train loss', loss, i*self.trainset.batch_count+j+1)
                 # self.writer.add_scalar('train loss0', loss0, i*self.trainset.batch_count+j+1)
                 # self.writer.add_scalar('train loss1', loss1, i*self.trainset.batch_count+j+1)
@@ -265,45 +230,59 @@ class Trainer():
                 # self.writer.add_scalar('lr3', self.optimizer.param_groups[3]['lr'], i*self.trainset.batch_count+j+1)
                 
             epoch_avg_loss = sum(epoch_sum_loss) / len(epoch_sum_loss)
+            # 計算平均損失
+            avg_valence_loss = sum(epoch_valence_loss) / len(epoch_valence_loss)
+            avg_arousal_loss = sum(epoch_arousal_loss) / len(epoch_arousal_loss)
             # 记录 GPU 内存和梯度范数
-            allocated = torch.cuda.memory_allocated() / 1024 ** 2
-            reserved = torch.cuda.memory_reserved() / 1024 ** 2
-            total_norm = sum(p.grad.data.norm(2).item()**2 for p in self.model.parameters() if p.grad is not None)**0.5
+            # allocated = torch.cuda.memory_allocated() / 1024 ** 2
+            # reserved = torch.cuda.memory_reserved() / 1024 ** 2
+            # total_norm = sum(p.grad.data.norm(2).item()**2 for p in self.model.parameters() if p.grad is not None)**0.5
 
             self.logging(f"Epoch {i}, Batch {j},Sentiment Loss: {loss0.item()}, Opinion Loss: {loss1.item()}, loss2 (v): {loss2.item()}, loss3 (a): {loss3.item()}")
-            self.logging('{}\tAvg loss: {:.10f}'.format(str(datetime.datetime.now()), epoch_avg_loss))
+            self.logging(f"Epoch {i}, Avg Loss: {epoch_avg_loss:.6f}, Valence Loss: {avg_valence_loss:.6f}, Arousal Loss: {avg_arousal_loss:.6f}")
             # self.logging(f"GPU Info: {torch.cuda.memory_summary(device=torch.device('cuda:0'), abbreviated=True)}")
             # self.logging(f"Batch {j}: GPU Allocated: {allocated:.2f}MB, Reserved: {reserved:.2f}MB, Gradient Norm: {total_norm:.2f}")
             self.logging(f"GPU Temperature: {get_gpu_temperature()}°C")
 
-            for name, param in self.model.intensity_head.named_parameters():
+            for name, param in self.model.cls_linear_valence.named_parameters():
                 if param.grad is not None:
                     self.logging(f"{name} - Grad Min: {param.grad.min()}, Grad Max: {param.grad.max()}")
                 else:
                     self.logging(f"{name} - Grad is None")
-
+            
+            for name, param in self.model.cls_linear_arousal.named_parameters():
+                if param.grad is not None:
+                    self.logging(f"{name} - Grad Min: {param.grad.min()}, Grad Max: {param.grad.max()}")
+                else:
+                    self.logging(f"{name} - Grad is None")
             # if joint_f1_test > self.best_joint_f1_test:
             #     bear = 0
             # else:
             #     bear += 1
             
-            if joint_f1 > self.best_joint_f1:
-                self.best_joint_f1 = joint_f1
-                self.best_joint_epoch = i
-                if joint_f1_test > self.best_joint_f1_test:
+            # if joint_intensity_f1 > self.best_joint_intensity_f1:
+            #     self.best_joint_intensity_f1 = joint_intensity_f1
+            #     self.best_joint_epoch = i
+                
+            if joint_intensity_f1_test > self.joint_intensity_f1_test:
 
-                    # if joint_f1_test > 74.0:
-                    
+                if joint_intensity_f1_test > 20.0:
+                
                     # Ensure the directory exists
                     model_dir = os.path.dirname(self.args.model_save_dir)
                     if not os.path.exists(model_dir):
                         os.makedirs(model_dir)
-                    # model_path = self.args.model_save_dir + self.args.data_version + "-" + self.args.dataset + "-" + str(round(joint_f1_test, 4)) + "-" + 'epoch' + str(i) + '.pt'
-                    model_path = self.args.model_save_dir + "best_model_ch.pt"
-                    torch.save(self.model, model_path)
+                    model_path = self.args.model_save_dir + 'epoch' + str(i)+ "-" + str(round(joint_intensity_f1_test, 4)) + "-" + '.pt'
+                    # model_path = self.args.model_save_dir + "best_model_ch.pt"
+                    torch.save({
+                        'model_state_dict': self.model.state_dict(),
+                        'optimizer_state_dict': self.optimizer.state_dict(),
+                        'epoch': i,
+                        'triplet_intensity_f1_test': joint_intensity_f1_test
+                    }, model_path)
                     self.logging(f"Model saved at {model_path}")
                     
-                    self.best_joint_f1_test = joint_f1_test
+                    self.joint_intensity_f1_test = joint_intensity_f1_test
                     self.best_joint_epoch_test = i
 
             if (j + 1) % 5 ==0:
@@ -318,11 +297,12 @@ class Trainer():
             # self.writer.add_scalar('test recall', joint_recall_test, i+1)
             # self.writer.add_scalar('best dev f1', self.best_joint_f1, i+1)
             # self.writer.add_scalar('best test f1', self.best_joint_f1_test, i+1)
-
+            # 記錄學習率和損失
             self.lr_scheduler.step()
-
-            self.logging('best epoch: {}\tbest dev {} f1: {:.5f}'.format(self.best_joint_epoch+1, self.args.task, self.best_joint_f1))
-            self.logging('best epoch: {}\tbest test {} f1: {:.5f}'.format(self.best_joint_epoch_test+1, self.args.task, self.best_joint_f1_test))
+            self.lr_scheduler_valence.step(avg_valence_loss)  # 對 valence 使用 ReduceLROnPlateau
+            self.lr_scheduler_arousal.step(avg_arousal_loss)  # 對 arousal 使用 ReduceLROnPlateau
+            # self.logging('best epoch: {}\tbest dev {} f1: {:.5f}'.format(self.best_joint_epoch+1, self.args.task, self.best_joint_f1))
+            self.logging('best epoch: {}\tbest test {} f1: {:.5f}'.format(self.best_joint_epoch_test+1, self.args.task, self.joint_intensity_f1_test))
 
         # 关闭TensorBoard写入器
         self.writer.close()
