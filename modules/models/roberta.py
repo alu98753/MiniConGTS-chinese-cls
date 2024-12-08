@@ -58,7 +58,7 @@ class Model(torch.nn.Module):
         
         # Valence 的分類頭
         logits_valence = self.cls_linear_valence(hidden)
-        print(f"logits_valence{logits_valence.shape}")
+        # print(f"logits_valence{logits_valence.shape}")
 
         # Arousal 的分類頭
         logits_arousal = self.cls_linear_arousal(hidden)

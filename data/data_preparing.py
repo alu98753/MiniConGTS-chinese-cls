@@ -41,7 +41,7 @@ class Instance(object):
         self.word_spans = self.get_word_spans()  # '[[0, 2], [3, 3], [4, 5], [6, 6], [7, 7], [8, 8], [9, 9], [10, 10], [11, 11], [12, 12]]'
         self._word_spans = copy.deepcopy(self.word_spans)
         self.id = single_sentence_pack['id']
-        
+
         self.triplets = single_sentence_pack['triples']
         
         # 在 `Instance.__init__` 中
@@ -97,7 +97,6 @@ class Instance(object):
         self.valence_arousal_tagging_matrix = self.get_valence_arousal_tagging_matrix()
         # self.intensity_tagging_matrix = (self.intensity_tagging_matrix + self.mask - torch.tensor(1)).long()
 
- 
 
     def get_intensity(self, single_sentence_pack):
         # 提取 intensity 並轉換為 [valence, arousal]
@@ -218,7 +217,9 @@ class Instance(object):
 
             valence = int(round(float(valence_str)))  # 四捨五入並轉為整數 
             arousal = int(round(float(arousal_str)))   # 四捨五入並轉為整數
-
+            # print(f"id : {triplet['uid']}")
+            # print(f"valence : {valence},arousal : {arousal}")
+            
             if valence >8 :
                 valence =8
             if arousal >8 :
@@ -432,12 +433,12 @@ class Instance(object):
                     pr = opinion_span[1]
                     for i in range(al, ar + 1):
                         for j in range(pl, pr + 1):
-                            if i == al and j == pl:
-                                valence_matrix[i][j] = valence  
-                                arousal_matrix[i][j] = arousal  
-                            else:
-                                valence_matrix[i][j] = -1  # 非主要 Aspect-Opinion 組合位置
-                                arousal_matrix[i][j] = -1
+                            # if i == al and j == pl:
+                            valence_matrix[i][j] = valence  
+                            arousal_matrix[i][j] = arousal  
+                            # else:
+                            #     valence_matrix[i][j] = -1  # 非主要 Aspect-Opinion 組合位置
+                            #     arousal_matrix[i][j] = -1
 
         return valence_matrix, arousal_matrix
 

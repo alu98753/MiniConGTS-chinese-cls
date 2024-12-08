@@ -8,7 +8,7 @@ class Metric():
         # metric = Metric(args, all_preds, all_labels, all_lengths, all_sens_lengths, all_token_ranges, ignore_index=-1)
         # print([i.sum() for i in predictions], [i.sum() for i in goldens])
     def __init__(self, args, stop_words, tokenized, ids, predictions, goldens, sen_lengths, 
-                 tokens_ranges, intensities, predicted_intensities, ignore_index=-1, logging=print):    
+                 tokens_ranges, all_valence_true, all_arousal_true, all_valence_preds, all_arousal_preds, ignore_index=-1, logging=print):    
         _g = np.array(goldens)
         _g[_g==-1] = 0
 
@@ -26,8 +26,17 @@ class Metric():
         self.logging = logging
         self.logging(f"sum_pred: {np.array(predictions).sum()} ,sum_gt: {_g.sum()}")
 
-        self.intensities = intensities  
-        self.predicted_intensities = predicted_intensities  # 預測值
+        self.all_valence_true = all_valence_true    # 真實值
+        self.all_arousal_true = all_arousal_true  
+        
+        self.all_valence_preds = all_valence_preds    # 預測值
+        self.all_arousal_preds = all_arousal_preds  
+        # print(f"self.all_valence_true: {self.all_valence_true.shape}")
+        # print(f"self.all_arousal_true: {self.all_arousal_true.shape}")
+        # print(f"self.all_valence_preds: {self.all_valence_preds.shape}")
+        # print(f"self.all_arousal_preds: {self.all_arousal_preds.shape}")
+        
+        # self.predicted_intensities = predicted_intensities
 
     def get_spans(self, tags, length, token_range, type):
         spans = []
@@ -47,12 +56,13 @@ class Metric():
             spans.append([start, length - 1])
         return spans
 
-    def find_triplet_golden(self, tag , tag_intensities):
+    def find_triplet_golden(self, tag , valence_true ,arousal_true ):
         triplets = []
         # print(f"調試 tag 矩陣：\n{len(tag)}")
-        # print(f"調試 tag 矩陣：\n{tag.shape}")
-        # print(f"調試 tag 矩陣：\n{tag_intensities.shape}")
+        # print(f"調試 tag 矩陣：\n{tag.shape}") # 80 80 
+        # print(f"調試 tag 矩陣：\n{tag_intensities.shape}")     #         sentiment2id = {'negative': 2, 'neutral': 3, 'positive': 4}
 
+        intensity2id =  {'4': 1, '5': 2,'6': 3,'7': 4,'8': 5}
         for row in range(1, tag.shape[0]-1):
             for col in range(1, tag.shape[1]-1):
                 if row==col:
@@ -70,13 +80,13 @@ class Metric():
                         pr += 1
 
                     # 提取 intensity 值  參考get_intensity_tagging_matrix
-                    v = tag_intensities[al, pr, 0]  # 提取 (pl, pr) 位置的第 0 個值
-                    a = tag_intensities[al, pr, 1]  # 提取 (pl, pr) 位置的第 1 個值
+                    v = valence_true[al, pr]   # 提取 (pl, pr) 位置的第 0 個值
+                    a = arousal_true[al, pr]   # 提取 (pl, pr) 位置的第 1 個值
                     # print(f"原本的: v :{v} , a :{a}")
 
                     # 乘以 10，四捨五入，並轉換為整數
-                    v = int(round(v * 10))
-                    a = int(round(a * 10))
+                    v = int(v+3) 
+                    a = int(a+3) 
                     # print(f"v :{v} , a :{a}")
 
                     triplets.append([al, ar, pl, pr, sentiment,v ,a])
@@ -110,9 +120,8 @@ class Metric():
     #                 sentiment = tag[row][col]
     #                 triplets.append([row, row, col, col, sentiment])
     #     return triplets
-
     
-    def find_triplet(self, tag, ws, tokenized , predicted_intensities_matrix):
+    def find_triplet(self, tag, ws, tokenized , valence_preds ,  arousal_preds ):
         triplets = []
         # print(f"調試：tag 矩陣\n{tag}")
         # print(f"調試：tokens_ranges={ws}")
@@ -165,10 +174,11 @@ class Metric():
                     if conditions:
                         # print(f"Triplet found: al={al}, ar={ar}, pl={pl}, pr={pr}, sentiment={sentiment}")
                         # print(f"Aspect range: {tokenized[al:ar+1]}, Opinion range: {tokenized[pl:pr+1]}")
-                        sub_matrix_0 = predicted_intensities_matrix[al:ar+1, pl:pr+1, 0]
-                        sub_matrix_1 = predicted_intensities_matrix[al:ar+1, pl:pr+1, 1]
-                        pred_v = int(round(sub_matrix_0.mean().item() * 10))
-                        pred_a = int(round(sub_matrix_1.mean().item() * 10))
+                        sub_matrix_0 = valence_preds[al:ar+1, pl:pr+1]
+                        sub_matrix_1 = arousal_preds[al:ar+1, pl:pr+1]
+                        pred_v = int(round(sub_matrix_0.mean().item() )) +3
+                        pred_a = int(round(sub_matrix_1.mean().item() )) +3
+                        # print(f"pred_v: {pred_v}, pred_a: {pred_a}")
 
                         triplets.append([al, ar, pl, pr, sentiment,pred_v ,pred_a])
 
@@ -220,12 +230,12 @@ class Metric():
         p_predicted_set = []
         golden_set = set()
         predicted_set = set()
-        print(f"self.data_num: {self.data_num}, len(self.intensities): {len(self.intensities)}")
+        print(f"self.data_num: {self.data_num}, len(self.all_valence_preds): {len(self.all_valence_preds)}, len(self.all_arousal_preds): {len(self.all_arousal_preds)}")
 
         for i in range(self.data_num):
             id = self.ids[i]
-            tokenized_sentence = self.tokenized[i]
-            golden_tuples = self.find_triplet_golden(np.array(self.goldens[i]) , np.array(self.intensities[i]))
+            tokenized_sentence = self.tokenized[i]   
+            golden_tuples = self.find_triplet_golden(np.array(self.goldens[i]) , np.array(self.all_valence_true[i]), np.array(self.all_arousal_true[i]))
             
             # print(f"tokens_ranges: {self.tokens_ranges[i]}")
             # print(f"tokenized sentence: {self.tokenized[i]}")
@@ -258,8 +268,8 @@ class Metric():
             tag[0][:] = -1
             tag[-1][:] = -1
             tag[:, 0] = -1
-            tag[:, -1] = -1
-            predicted_triplets , tokenized = self.find_triplet(tag, self.tokens_ranges[i], self.tokenized[i] , np.array(self.predicted_intensities[i]))
+            tag[:, -1] = -1                     
+            predicted_triplets , tokenized = self.find_triplet(tag, self.tokens_ranges[i], self.tokenized[i] , np.array( self.all_valence_preds[i]), np.array( self.all_arousal_preds[i]))
 
             # predict symetric
             for pair in predicted_triplets:
